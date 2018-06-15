@@ -11,7 +11,7 @@
 //  Declarations that describe the Ceespu register file
 //===----------------------------------------------------------------------===//
 
-class CeespuReg<bits<16> Enc, string n> : Register<n> {
+class CeespuReg<bits<5> Enc, string n> : Register<n> {
   let HWEncoding = Enc;
   let Namespace = "Ceespu";
 }
