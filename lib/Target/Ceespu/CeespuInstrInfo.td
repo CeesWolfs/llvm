@@ -253,6 +253,7 @@ class LOAD<CeespuOpcode opc, string opcstr, PatFrag OpNode>
 
 
 def LW : LOAD<OPC_LW,  "lw", load>;
+
 def LH : LOAD<OPC_LH,  "lh", sextloadi16>;
 def LHU: LOAD<OPC_LHU, "lhu",zextloadi16>;
 def LB : LOAD<OPC_LB,  "lb", sextloadi8>;
@@ -284,7 +285,7 @@ let usesCustomInserter = 1 in {
 def : Pat<(i32 0), (i32 R0)>;
 
 // Arbitrary immediates
-def : Pat<(i32 imm:$imm), (SETHI (HI16 imm:$imm),(LO16 imm:$imm))>;
+def : Pat<(i32 imm:$imm), (ORI (SETHI (HI16 imm:$imm)),(LO16 imm:$imm))>;
 
 //define not as xor with all zeros
 def : Pat<(not GPR:$rd),

@@ -25,14 +25,8 @@ def CeespuInstPrinter : AsmWriter {
   bit isMCAsmWriter = 1;
 }
 
-def CeespuAsmParserVariant : AsmParserVariant {
-  int Variant = 0;
-  string Name = "Ceespu";
-  string BreakCharacters = "";
-}
-
 def Ceespu : Target {
   let InstructionSet = CeespuInstrInfo;
   let AssemblyWriters = [CeespuInstPrinter];
-  let AssemblyParserVariants = [CeespuAsmParserVariant];
+
 }
