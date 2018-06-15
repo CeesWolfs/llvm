@@ -132,4 +132,10 @@ class CeespuB2<CeespuOpcode opc, dag outs, dag ins, string opcstr, string argstr
 
 class Pseudo<dag outs, dag ins, string opcstr="", string argstr="", list<dag> pattern> : Instruction {
   let isPseudo = 1;
-}
+  let Namespace = "Ceespu";
+  dag OutOperandList = outs;
+  dag InOperandList = ins;
+  let AsmString   = opcstr # "\t" # argstr;
+  let Pattern = pattern;
+  let Size = 4;
+  }

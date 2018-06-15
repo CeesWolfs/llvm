@@ -64,7 +64,7 @@ def u32imm   : Operand<i32> {
   let PrintMethod = "printImm32Operand";
 }
 
-def i32immSExt16 : PatLeaf<(imm),
+def i32immSExt16 : Operand<i32>, PatLeaf<(imm),
                 [{return isInt<16>(N->getSExtValue()); }]>;
 
 def u5imm : Operand<i32>, ImmLeaf<i32, [{return isUInt<5>(Imm);}]> {
@@ -98,7 +98,7 @@ def Ceespu_CC_GEU : PatLeaf<(imm),
 
 // jump instructions
 class BRANCH_COND<CeespuOpcode opc, string opcstr, PatLeaf Cond>
-    : CeespuB1<opc, (outs), (ins GPR:$rd, GPR:$ra, brtarget:$imm),
+    : CeespuB1<opc, (outs), (ins GPR:$ra, GPR:$rb, brtarget:$imm),
               opcstr, "$ra, $rb, $imm",
               [(Ceespubrcc i32:$ra, i32:$rb, Cond, brtarget:$imm)]> {
 }
@@ -137,7 +137,7 @@ def BGE  : BRANCH_COND<OPC_BGE,  "bge", Ceespu_CC_GE>;
 
 // Jump always
 let isBranch = 1, isTerminator = 1, hasDelaySlot=0, isBarrier = 1 in {
-  def JMP : CeespuB2<OPC_JMP, (outs), (ins brtarget), "b", "$imm" , [(br brtarget:$imm)]>;
+  def JMP : CeespuB2<OPC_JMP, (outs), (ins brtarget:$imm), "b", "$imm" , [(br brtarget:$imm)]>;
 }
 
 // Jump and link
@@ -217,7 +217,7 @@ let isAsCheapAsAMove = 1 in {
 
 def MOV : InstAlias<"mov $rd, $ra", (ADDI GPR:$rd, GPR:$ra, 0)>;
 def NOP : InstAlias<"nop", (ADD R1, R1, R0)>;
-def NOT : InstAlias<"not $rd, $ra", (XOR GPR:$rd, GPR:$ra, -1)>;
+def NOT : InstAlias<"not $rd, $ra", (XORI GPR:$rd, GPR:$ra, -1)>;
 def SEXT8 : CeespuA2<OPC_SE, (outs GPR:$rd), (ins GPR:$ra),
               "seb", "$rd, $ra",
               [(set GPR:$rd, (sext_inreg GPR:$ra, i8))]>;
@@ -238,7 +238,7 @@ def FI_ri
 
 // STORE instructions
 class STORE<CeespuOpcode opc, string opcstr, PatFrag OpNode>
-    : CeespuB2<opc, (outs), (ins GPR:$ra, ADDR:$addr),
+    : CeespuB2<opc, (outs), (ins GPR:$ra, MEMri:$addr),
              opcstr ,"$ra, $addr", [(OpNode GPR:$ra, ADDR:$addr)]>;
 
 
@@ -260,10 +260,10 @@ def LBU: LOAD<OPC_LBU, "lbu",zextloadi8>;
 
 // ADJCALLSTACKDOWN/UP pseudo insns
 let Defs = [SP], Uses = [SP, LR] in {
-def ADJCALLSTACKDOWN : Pseudo<(outs), (ins u32imm:$amt1, u32imm:$amt2),
+def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
                               "#ADJCALLSTACKDOWN", "$amt1 $amt2",
                               [(Ceespucallseq_start timm:$amt1, timm:$amt2)]>;
-def ADJCALLSTACKUP   : Pseudo<(outs), (ins u32imm:$amt1, u32imm:$amt2),
+def ADJCALLSTACKUP   : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
                               "#ADJCALLSTACKUP", "$amt1 $amt2",
                               [(Ceespucallseq_end timm:$amt1, timm:$amt2)]>;
 }
