@@ -1,4 +1,4 @@
-//===-- CeespuFrameLowering.h - Define frame lowering for Ceespu -----*- C++
+//===-- CeespuFrameLowering.h - Define frame lowering for Ceespu -*- C++
 //-*--===//
 //
 //                     The LLVM Compiler Infrastructure
@@ -22,23 +22,39 @@ class CeespuSubtarget;
 
 class CeespuFrameLowering : public TargetFrameLowering {
  public:
-  explicit CeespuFrameLowering(const CeespuSubtarget &sti)
-      : TargetFrameLowering(TargetFrameLowering::StackGrowsUp, 4, 0) {}
+  explicit CeespuFrameLowering(const CeespuSubtarget &STI)
+      : TargetFrameLowering(StackGrowsDown,
+                            /*StackAlignment=*/4,
+                            /*LocalAreaOffset=*/0),
+        STI(STI) {}
 
   void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
 
+  int getFrameIndexReference(const MachineFunction &MF, int FI,
+                             unsigned &FrameReg) const override;
+
+  void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
+                            RegScavenger *RS) const override;
+
+  void processFunctionBeforeFrameFinalized(MachineFunction &MF,
+                                           RegScavenger *RS) const override;
+
   bool hasFP(const MachineFunction &MF) const override;
-  //! Stack slot size (4 bytes)
-  static int stackSlotSize() { return 4; }
+
+  bool hasReservedCallFrame(const MachineFunction &MF) const override;
   MachineBasicBlock::iterator eliminateCallFramePseudoInstr(
       MachineFunction &MF, MachineBasicBlock &MBB,
       MachineBasicBlock::iterator MI) const override;
-  virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                                    RegScavenger *RS) const;
+
+ protected:
+  const CeespuSubtarget &STI;
 
  private:
-  uint64_t computeStackSize(MachineFunction &MF) const;
+  void determineFrameLayout(MachineFunction &MF) const;
+  void adjustReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
+                 const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
+                 int64_t Val, MachineInstr::MIFlag Flag) const;
 };
 }  // namespace llvm
 #endif

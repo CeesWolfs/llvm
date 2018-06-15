@@ -33,7 +33,7 @@ def R12 : CeespuReg< 12, "c12">;
 def R13 : CeespuReg< 13, "c13">;
 def R14 : CeespuReg< 14, "c14">;
 def R15 : CeespuReg< 15, "c15">;
-def R16 : CeespuReg< 16, "c16">;
+def FP  : CeespuReg< 16, "c16">;
 def R17 : CeespuReg< 17, "cir">;
 def SP  : CeespuReg< 18, "csp">;
 def LR  : CeespuReg< 19, "clr">;
@@ -58,8 +58,8 @@ def GPR : RegisterClass<"Ceespu", [i32], 32, (add
     // Return Values and Arguments
 	R20, R21, R22, R23, R24, R25,
 	// Not preserved across procedure calls
-	R12, R13, R14, R15, R16, R26, R27, R28, R29, R30, R31,
+	R12, R13, R14, R15, R26, R27, R28, R29, R30, R31,
 	// Callee save
 	R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11,
 	// Reserved 
-  LR, SP, R17)>;
+  FP, LR, SP, R17)>;

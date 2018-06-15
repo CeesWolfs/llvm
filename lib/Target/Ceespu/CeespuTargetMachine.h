@@ -1,4 +1,4 @@
-//===-- CeespuTargetMachine.h - Define TargetMachine for Ceespu --- C++ ---===//
+//===-- CeespuTargetMachine.h - Define TargetMachine for Ceespu ---*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -14,7 +14,10 @@
 #ifndef LLVM_LIB_TARGET_Ceespu_CeespuTARGETMACHINE_H
 #define LLVM_LIB_TARGET_Ceespu_CeespuTARGETMACHINE_H
 
+#include "MCTargetDesc/CeespuMCTargetDesc.h"
 #include "CeespuSubtarget.h"
+#include "llvm/CodeGen/SelectionDAGTargetInfo.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
@@ -22,13 +25,12 @@ class CeespuTargetMachine : public LLVMTargetMachine {
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
   CeespuSubtarget Subtarget;
 
- public:
+public:
   CeespuTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
-                      StringRef FS, const TargetOptions &Options,
-                      Reloc::Model RM, CodeModel::Model CM,
-                      CodeGenOpt::Level OL);
+                     StringRef FS, const TargetOptions &Options,
+                     Optional<Reloc::Model> RM, Optional<CodeModel::Model> CM,
+                     CodeGenOpt::Level OL, bool JIT);
 
-  const CeespuSubtarget *getSubtargetImpl() const { return &Subtarget; }
   const CeespuSubtarget *getSubtargetImpl(const Function &) const override {
     return &Subtarget;
   }
@@ -39,6 +41,6 @@ class CeespuTargetMachine : public LLVMTargetMachine {
     return TLOF.get();
   }
 };
-}  // namespace llvm
+}
 
 #endif

@@ -109,7 +109,7 @@ def uimm5 : Operand<XLenVT>, ImmLeaf<XLenVT, [{return isUInt<5>(Imm);}]> {
 
 def simm12 : Operand<XLenVT>, ImmLeaf<XLenVT, [{return isInt<12>(Imm);}]> {
   let ParserMatchClass = SImmAsmOperand<12>;
-  let EncoderMethod = "getImmOpValue";
+> Inst  let EncoderMethod = "getImmOpValue";
   let DecoderMethod = "decodeSImmOperand<12>";
   let MCOperandPredicate = [{
     int64_t Imm;

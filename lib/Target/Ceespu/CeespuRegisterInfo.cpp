@@ -1,4 +1,4 @@
-//===-- CeespuRegisterInfo.cpp - Ceespu Register Information ----------*- C++ -*-===//
+//===-- CeespuRegisterInfo.cpp - Ceespu Register Information ------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,100 +11,103 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ceespu.h"
 #include "CeespuRegisterInfo.h"
+#include "Ceespu.h"
 #include "CeespuSubtarget.h"
-#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
+#include "llvm/CodeGen/TargetFrameLowering.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Target/TargetFrameLowering.h"
-#include "llvm/Target/TargetInstrInfo.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "CeespuGenRegisterInfo.inc"
+
 using namespace llvm;
 
-CeespuRegisterInfo::CeespuRegisterInfo()
-    : CeespuGenRegisterInfo(Ceespu::R0) {}
+CeespuRegisterInfo::CeespuRegisterInfo(unsigned HwMode)
+    : CeespuGenRegisterInfo(Ceespu::X1, /*DwarfFlavour*/0, /*EHFlavor*/0,
+                           /*PC*/0, HwMode) {}
 
 const MCPhysReg *
 CeespuRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
-  static const uint16_t CalleeSavedRegs[] = { Ceespu::LR, Ceespu::R1, Ceespu::R2, Ceespu::R3,
-                                              Ceespu::R4, Ceespu::R5, Ceespu::R6,
-                                              Ceespu::R7, Ceespu::R8, Ceespu::R9,
-                                              Ceespu::R10, Ceespu::R11, Ceespu::R12,
-                                              0 };
-  return CalleeSavedRegs;
+  return CSR_SaveList;
 }
 
 BitVector CeespuRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
-  Reserved.set(Ceespu::R0); // R0 is always zero
-  Reserved.set(Ceespu::SP); // R18 is stack pointer
-  Reserved.set(Ceespu::LR); // R19 is link register
-  Reserved.set(Ceespu::R17);// R17 is interrupt register
+
+  // Use markSuperRegs to ensure any register aliases are also reserved
+  markSuperRegs(Reserved, Ceespu::R0); // zero register
+  markSuperRegs(Reserved, Ceespu::R17); // interrupt register
+  markSuperRegs(Reserved, Ceespu::SP); // stack pointer
+  markSuperRegs(Reserved, Ceespu::LR); // link register
+  markSuperRegs(Reserved, Ceespu::FP); // frame pointer
+  assert(checkAllSuperRegsMarked(Reserved));
   return Reserved;
 }
 
-void CeespuRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                          int SPAdj, unsigned FIOperandNum,
-                                          RegScavenger *RS) const {
-  assert(SPAdj == 0 && "Unexpected");
+bool CeespuRegisterInfo::isConstantPhysReg(unsigned PhysReg) const {
+  return PhysReg == Ceespu::R0;
+}
 
-  unsigned i = 0;
+const uint32_t *CeespuRegisterInfo::getNoPreservedMask() const {
+  return CSR_NoRegs_RegMask;
+}
+
+void CeespuRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                            int SPAdj, unsigned FIOperandNum,
+                                            RegScavenger *RS) const {
+  assert(SPAdj == 0 && "Unexpected non-zero SPAdj value");
+
   MachineInstr &MI = *II;
   MachineFunction &MF = *MI.getParent()->getParent();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const CeespuInstrInfo *TII = MF.getSubtarget<CeespuSubtarget>().getInstrInfo();
   DebugLoc DL = MI.getDebugLoc();
 
-  while (!MI.getOperand(i).isFI()) {
-    ++i;
-    assert(i < MI.getNumOperands() && "Instr doesn't have FrameIndex operand!");
+  int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
+  unsigned FrameReg;
+  int Offset =
+      getFrameLowering(MF)->getFrameIndexReference(MF, FrameIndex, FrameReg) +
+      MI.getOperand(FIOperandNum + 1).getImm();
+
+  if (!isInt<32>(Offset)) {
+    report_fatal_error(
+        "Frame offsets outside of the signed 32-bit range not supported");
   }
 
-  unsigned FrameReg = getFrameRegister(MF);
-  int FrameIndex = MI.getOperand(i).getIndex();
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   MachineBasicBlock &MBB = *MI.getParent();
+  bool FrameRegIsKill = false;
 
-  if (MI.getOpcode() == Ceespu::MOV_rr) {
-    int Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex);
-
-    MI.getOperand(i).ChangeToRegister(FrameReg, false);
-    unsigned reg = MI.getOperand(i - 1).getReg();
-    BuildMI(MBB, ++II, DL, TII.get(Ceespu::ADD_ri), reg)
-        .addReg(reg)
-        .addImm(Offset);
-    return;
+  if (!isInt<12>(Offset)) {
+    assert(isInt<32>(Offset) && "Int32 expected");
+    // The offset won't fit in an immediate, so use a scratch register instead
+    // Modify Offset and FrameReg appropriately
+    unsigned ScratchReg = MRI.createVirtualRegister(&Ceespu::GPRRegClass);
+    TII->movImm32(MBB, II, DL, ScratchReg, Offset);
+    BuildMI(MBB, II, DL, TII->get(Ceespu::ADD_rr), ScratchReg)
+        .addReg(FrameReg)
+        .addReg(ScratchReg, RegState::Kill);
+    Offset = 0;
+    FrameReg = ScratchReg;
+    FrameRegIsKill = true;
   }
 
-  int Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
-               MI.getOperand(i + 1).getImm();
-
-  if (!isInt<32>(Offset))
-    llvm_unreachable("bug in frame offset");
-
-  if (MI.getOpcode() == Ceespu::FI_ri) {
-    // architecture does not really support FI_ri, replace it with
-    //    MOV_rr <target_reg>, frame_reg
-    //    ADD_ri <target_reg>, imm
-    unsigned reg = MI.getOperand(i - 1).getReg();
-
-    BuildMI(MBB, ++II, DL, TII.get(Ceespu::MOV_rr), reg)
-        .addReg(FrameReg);
-    BuildMI(MBB, II, DL, TII.get(Ceespu::ADD_ri), reg)
-        .addReg(reg)
-        .addImm(Offset);
-
-    // Remove FI_ri instruction
-    MI.eraseFromParent();
-  } else {
-    MI.getOperand(i).ChangeToRegister(FrameReg, false);
-    MI.getOperand(i + 1).ChangeToImmediate(Offset);
-  }
+  MI.getOperand(FIOperandNum)
+      .ChangeToRegister(FrameReg, false, false, FrameRegIsKill);
+  MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
 }
 
 unsigned CeespuRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  return Ceespu::SP;
+  const TargetFrameLowering *TFI = getFrameLowering(MF);
+  return TFI->hasFP(MF) ? Ceespu::FP : Ceespu::SP;
+}
+
+const uint32_t *
+CeespuRegisterInfo::getCallPreservedMask(const MachineFunction & /*MF*/,
+                                        CallingConv::ID /*CC*/) const {
+  return CSR_RegMask;
 }

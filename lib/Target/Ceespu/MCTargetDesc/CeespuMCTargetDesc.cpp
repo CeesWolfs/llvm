@@ -1,5 +1,4 @@
-//===-- CeespuMCTargetDesc.cpp - Ceespu Target Descriptions
-//---------------------===//
+//===-- CeespuMCTargetDesc.cpp - Ceespu Target Descriptions -----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,15 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-// This file provides Ceespu specific target descriptions.
-//
+///
+/// This file provides Ceespu-specific target descriptions.
+///
 //===----------------------------------------------------------------------===//
 
 #include "CeespuMCTargetDesc.h"
-#include "Ceespu.h"
-#include "CeespuMCAsmInfo.h"
 #include "InstPrinter/CeespuInstPrinter.h"
+#include "CeespuELFStreamer.h"
+#include "CeespuMCAsmInfo.h"
+#include "CeespuTargetStreamer.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
@@ -26,11 +28,11 @@
 #define GET_INSTRINFO_MC_DESC
 #include "CeespuGenInstrInfo.inc"
 
-#define GET_SUBTARGETINFO_MC_DESC
-#include "CeespuGenSubtargetInfo.inc"
-
 #define GET_REGINFO_MC_DESC
 #include "CeespuGenRegisterInfo.inc"
+
+#define GET_SUBTARGETINFO_MC_DESC
+#include "CeespuGenSubtargetInfo.inc"
 
 using namespace llvm;
 
@@ -42,87 +44,59 @@ static MCInstrInfo *createCeespuMCInstrInfo() {
 
 static MCRegisterInfo *createCeespuMCRegisterInfo(const Triple &TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitCeespuMCRegisterInfo(X, Ceespu::R11 /* RAReg doesn't exist */);
+  InitCeespuMCRegisterInfo(X, Ceespu::X1);
   return X;
+}
+
+static MCAsmInfo *createCeespuMCAsmInfo(const MCRegisterInfo &MRI,
+                                       const Triple &TT) {
+  return new CeespuMCAsmInfo(TT);
 }
 
 static MCSubtargetInfo *createCeespuMCSubtargetInfo(const Triple &TT,
-                                                    StringRef CPU,
-                                                    StringRef FS) {
-  return createCeespuMCSubtargetInfoImpl(TT, CPU, FS);
-}
-
-static MCCodeGenInfo *createCeespuMCCodeGenInfo(const Triple &TT,
-                                                Reloc::Model RM,
-                                                CodeModel::Model CM,
-                                                CodeGenOpt::Level OL) {
-  MCCodeGenInfo *X = new MCCodeGenInfo();
-  X->initMCCodeGenInfo(RM, CM, OL);
-  return X;
-}
-
-static MCStreamer *createCeespuMCStreamer(const Triple &T, MCContext &Ctx,
-                                          MCAsmBackend &MAB,
-                                          raw_pwrite_stream &OS,
-                                          MCCodeEmitter *Emitter,
-                                          bool RelaxAll) {
-  return createELFStreamer(Ctx, MAB, OS, Emitter, RelaxAll);
+                                                   StringRef CPU, StringRef FS) {
+  std::string CPUName = CPU;
+  if (CPUName.empty())
+    CPUName = TT.isArch64Bit() ? "generic-rv64" : "generic-rv32";
+  return createCeespuMCSubtargetInfoImpl(TT, CPUName, FS);
 }
 
 static MCInstPrinter *createCeespuMCInstPrinter(const Triple &T,
-                                                unsigned SyntaxVariant,
-                                                const MCAsmInfo &MAI,
-                                                const MCInstrInfo &MII,
-                                                const MCRegisterInfo &MRI) {
-  if (SyntaxVariant == 0) return new CeespuInstPrinter(MAI, MII, MRI);
-  return 0;
+                                               unsigned SyntaxVariant,
+                                               const MCAsmInfo &MAI,
+                                               const MCInstrInfo &MII,
+                                               const MCRegisterInfo &MRI) {
+  return new CeespuInstPrinter(MAI, MII, MRI);
+}
+
+static MCTargetStreamer *
+createCeespuObjectTargetStreamer(MCStreamer &S, const MCSubtargetInfo &STI) {
+  const Triple &TT = STI.getTargetTriple();
+  if (TT.isOSBinFormatELF())
+    return new CeespuTargetELFStreamer(S, STI);
+  return nullptr;
+}
+
+static MCTargetStreamer *createCeespuAsmTargetStreamer(MCStreamer &S,
+                                                      formatted_raw_ostream &OS,
+                                                      MCInstPrinter *InstPrint,
+                                                      bool isVerboseAsm) {
+  return new CeespuTargetAsmStreamer(S, OS);
 }
 
 extern "C" void LLVMInitializeCeespuTargetMC() {
-  for (Target *T : {&TheCeespuleTarget, &TheCeespubeTarget, &TheCeespuTarget}) {
-    // Register the MC asm info.
-    RegisterMCAsmInfo<CeespuMCAsmInfo> X(*T);
-
-    // Register the MC codegen info.
-    TargetRegistry::RegisterMCCodeGenInfo(*T, createCeespuMCCodeGenInfo);
-
-    // Register the MC instruction info.
+  for (Target *T : {&getTheCeespu32Target(), &getTheCeespu64Target()}) {
+    TargetRegistry::RegisterMCAsmInfo(*T, createCeespuMCAsmInfo);
     TargetRegistry::RegisterMCInstrInfo(*T, createCeespuMCInstrInfo);
-
-    // Register the MC register info.
     TargetRegistry::RegisterMCRegInfo(*T, createCeespuMCRegisterInfo);
-
-    // Register the MC subtarget info.
-    TargetRegistry::RegisterMCSubtargetInfo(*T, createCeespuMCSubtargetInfo);
-
-    // Register the object streamer
-    TargetRegistry::RegisterELFStreamer(*T, createCeespuMCStreamer);
-
-    // Register the MCInstPrinter.
+    TargetRegistry::RegisterMCAsmBackend(*T, createCeespuAsmBackend);
+    TargetRegistry::RegisterMCCodeEmitter(*T, createCeespuMCCodeEmitter);
     TargetRegistry::RegisterMCInstPrinter(*T, createCeespuMCInstPrinter);
-  }
+    TargetRegistry::RegisterMCSubtargetInfo(*T, createCeespuMCSubtargetInfo);
+    TargetRegistry::RegisterObjectTargetStreamer(
+        *T, createCeespuObjectTargetStreamer);
 
-  // Register the MC code emitter
-  TargetRegistry::RegisterMCCodeEmitter(TheCeespuleTarget,
-                                        createCeespuMCCodeEmitter);
-  TargetRegistry::RegisterMCCodeEmitter(TheCeespubeTarget,
-                                        createCeespubeMCCodeEmitter);
-
-  // Register the ASM Backend
-  TargetRegistry::RegisterMCAsmBackend(TheCeespuleTarget,
-                                       createCeespuAsmBackend);
-  TargetRegistry::RegisterMCAsmBackend(TheCeespubeTarget,
-                                       createCeespubeAsmBackend);
-
-  if (sys::IsLittleEndianHost) {
-    TargetRegistry::RegisterMCCodeEmitter(TheCeespuTarget,
-                                          createCeespuMCCodeEmitter);
-    TargetRegistry::RegisterMCAsmBackend(TheCeespuTarget,
-                                         createCeespuAsmBackend);
-  } else {
-    TargetRegistry::RegisterMCCodeEmitter(TheCeespuTarget,
-                                          createCeespubeMCCodeEmitter);
-    TargetRegistry::RegisterMCAsmBackend(TheCeespuTarget,
-                                         createCeespubeAsmBackend);
+    // Register the asm target streamer.
+    TargetRegistry::RegisterAsmTargetStreamer(*T, createCeespuAsmTargetStreamer);
   }
 }

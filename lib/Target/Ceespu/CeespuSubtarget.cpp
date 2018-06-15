@@ -1,4 +1,5 @@
-//===-- CeespuSubtarget.cpp - Ceespu Subtarget Information ----------------------===//
+//===-- CeespuSubtarget.cpp - Ceespu Subtarget Information
+//------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -13,11 +14,12 @@
 
 #include "CeespuSubtarget.h"
 #include "Ceespu.h"
+#include "CeespuFrameLowering.h"
 #include "llvm/Support/TargetRegistry.h"
 
 using namespace llvm;
 
-#define DEBUG_TYPE "Ceespu-subtarget"
+#define DEBUG_TYPE "ceespu-subtarget"
 
 #define GET_SUBTARGETINFO_TARGET_DESC
 #define GET_SUBTARGETINFO_CTOR
@@ -25,11 +27,19 @@ using namespace llvm;
 
 void CeespuSubtarget::anchor() {}
 
-CeespuSubtarget::CeespuSubtarget(const Triple &TT, const std::string &CPU,
-                           const std::string &FS, const TargetMachine &TM)
-    : CeespuGenSubtargetInfo(TT, CPU, FS), InstrInfo(), FrameLowering(*this),
-      TLInfo(TM, *this) {}
-bool CeespuSubtarget::abiUsesSoftFloat() const {
-//  return TM->Options.UseSoftFloat;
-  return true;
+CeespuSubtarget &CeespuSubtarget::initializeSubtargetDependencies(
+    StringRef CPU, StringRef FS, bool Is64Bit) {
+  // Determine default and user-specified characteristics
+  std::string CPUName = CPU;
+  if (CPUName.empty()) CPUName = Is64Bit ? "generic-ceespu" : "generic-ceespu";
+  ParseSubtargetFeatures(CPUName, FS);
+  return *this;
 }
+
+CeespuSubtarget::CeespuSubtarget(const Triple &TT, const std::string &CPU,
+                                 const std::string &FS, const TargetMachine &TM)
+    : CeespuGenSubtargetInfo(TT, CPU, FS),
+      FrameLowering(initializeSubtargetDependencies(CPU, FS, TT.isArch64Bit())),
+      InstrInfo(),
+      RegInfo(getHwMode()),
+      TLInfo(TM, *this) {}

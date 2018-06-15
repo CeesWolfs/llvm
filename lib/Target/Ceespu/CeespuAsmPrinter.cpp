@@ -1,4 +1,5 @@
-//===-- CeespuAsmPrinter.cpp - Ceespu LLVM assembly writer ----------------------===//
+//===-- CeespuAsmPrinter.cpp - Ceespu LLVM assembly writer
+//------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -13,15 +14,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "Ceespu.h"
-#include "CeespuInstrInfo.h"
-#include "CeespuMCInstLower.h"
 #include "CeespuTargetMachine.h"
 #include "InstPrinter/CeespuInstPrinter.h"
+#include "MCTargetDesc/CeespuMCExpr.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
@@ -35,55 +35,118 @@ using namespace llvm;
 namespace {
 class CeespuAsmPrinter : public AsmPrinter {
 public:
-  explicit CeespuAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer)
+  explicit CeespuAsmPrinter(TargetMachine &TM,
+                            std::unique_ptr<MCStreamer> Streamer)
       : AsmPrinter(TM, std::move(Streamer)) {}
 
-  const char *getPassName() const override { return "Ceespu Assembly Printer"; }
+  StringRef getPassName() const override { return "Ceespu Assembly Printer"; }
 
-  void printOperand(const MachineInstr *MI, int OpNum, raw_ostream &O,
-                    const char *Modifier = nullptr);
   void EmitInstruction(const MachineInstr *MI) override;
-};
-}
 
-void CeespuAsmPrinter::printOperand(const MachineInstr *MI, int OpNum,
-                                 raw_ostream &O, const char *Modifier) {
-  const MachineOperand &MO = MI->getOperand(OpNum);
+  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                       unsigned AsmVariant, const char *ExtraCode,
+                       raw_ostream &OS) override;
+  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
+                             unsigned AsmVariant, const char *ExtraCode,
+                             raw_ostream &OS) override;
 
-  switch (MO.getType()) {
-  case MachineOperand::MO_Register:
-    O << CeespuInstPrinter::getRegisterName(MO.getReg());
-    break;
+  void EmitToStreamer(MCStreamer &S, const MCInst &Inst);
+  bool emitPseudoExpansionLowering(MCStreamer &OutStreamer,
+                                   const MachineInstr *MI);
 
-  case MachineOperand::MO_Immediate:
-    O << MO.getImm();
-    break;
-
-  case MachineOperand::MO_MachineBasicBlock:
-    O << *MO.getMBB()->getSymbol();
-    break;
-
-  case MachineOperand::MO_GlobalAddress:
-    O << *getSymbol(MO.getGlobal());
-    break;
-
-  default:
-    llvm_unreachable("<unknown operand type>");
+  // Wrapper needed for tblgenned pseudo lowering.
+  bool lowerOperand(const MachineOperand &MO, MCOperand &MCOp) const {
+    return LowerCeespuMachineOperandToMCOperand(MO, MCOp, *this);
   }
+};
+} // namespace
+
+#define GEN_COMPRESS_INSTR
+#include "CeespuGenCompressInstEmitter.inc"
+void CeespuAsmPrinter::EmitToStreamer(MCStreamer &S, const MCInst &Inst) {
+  MCInst CInst;
+  bool Res = compressInst(CInst, Inst, *TM.getMCSubtargetInfo(),
+                          OutStreamer->getContext());
+  AsmPrinter::EmitToStreamer(*OutStreamer, Res ? CInst : Inst);
 }
+
+// Simple pseudo-instructions have their lowering (with expansion to real
+// instructions) auto-generated.
+#include "CeespuGenMCPseudoLowering.inc"
 
 void CeespuAsmPrinter::EmitInstruction(const MachineInstr *MI) {
-
-  CeespuMCInstLower MCInstLowering(OutContext, *this);
+  // Do any auto-generated pseudo lowerings.
+  if (emitPseudoExpansionLowering(*OutStreamer, MI))
+    return;
 
   MCInst TmpInst;
-  MCInstLowering.Lower(MI, TmpInst);
+  LowerCeespuMachineInstrToMCInst(MI, TmpInst, *this);
   EmitToStreamer(*OutStreamer, TmpInst);
+}
+
+bool CeespuAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                       unsigned AsmVariant,
+                                       const char *ExtraCode, raw_ostream &OS) {
+  if (AsmVariant != 0)
+    report_fatal_error("There are no defined alternate asm variants");
+
+  // First try the generic code, which knows about modifiers like 'c' and 'n'.
+  if (!AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, OS))
+    return false;
+
+  if (!ExtraCode) {
+    const MachineOperand &MO = MI->getOperand(OpNo);
+    switch (MO.getType()) {
+    case MachineOperand::MO_GlobalAddress:
+      OS << MO.getGlobal();
+      return false;
+    case MachineOperand::MO_Immediate:
+      OS << MO.getImm();
+      return false;
+    case MachineOperand::MO_Register:
+      OS << CeespuInstPrinter::getRegisterName(MO.getReg());
+      return false;
+    default:
+      break;
+    }
+  }
+
+  return true;
+}
+
+bool CeespuAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
+                                             unsigned OpNo, unsigned AsmVariant,
+                                             const char *ExtraCode,
+                                             raw_ostream &OS) {
+  if (AsmVariant != 0)
+    report_fatal_error("There are no defined alternate asm variants");
+
+  if (!ExtraCode) {
+    const MachineOperand &MO = MI->getOperand(OpNo);
+    
+    if (MO.isGlobal()) {
+        OS << MO.getGlobal();
+        return false;
+    }
+    
+    // For now, we only support register memory operands in registers and
+    // assume there is no addend
+    if (MO.isImm()) {
+      OS << MO.getImm();
+      return true;
+    }
+    
+    if(!MO.isReg()) return true;
+
+    OS << "(" << CeespuInstPrinter::getRegisterName(MO.getReg()) << ")";
+    return false;
+  }
+
+  return AsmPrinter::PrintAsmMemoryOperand(MI, OpNo, AsmVariant, ExtraCode, OS);
 }
 
 // Force static initialization.
 extern "C" void LLVMInitializeCeespuAsmPrinter() {
-  RegisterAsmPrinter<CeespuAsmPrinter> X(TheCeespuleTarget);
-  RegisterAsmPrinter<CeespuAsmPrinter> Y(TheCeespubeTarget);
-  RegisterAsmPrinter<CeespuAsmPrinter> Z(TheCeespuTarget);
+  RegisterAsmPrinter<CeespuAsmPrinter> X(getTheCeespuTarget());
+  RegisterAsmPrinter<CeespuAsmPrinter> Y(getTheCeespuebTarget());
 }

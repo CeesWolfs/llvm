@@ -1,4 +1,4 @@
-;===- ./lib/Target/Ceespu/LLVMBuild.txt ---------------------------*- Conf -*--===;
+;===- ./lib/Target/Ceespu/LLVMBuild.txt -------------------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;
@@ -16,27 +16,19 @@
 ;===------------------------------------------------------------------------===;
 
 [common]
-subdirectories = InstPrinter MCTargetDesc TargetInfo
+subdirectories = InstPrinter TargetInfo MCTargetDesc
 
 [component_0]
 type = TargetGroup
 name = Ceespu
 parent = Target
 has_asmprinter = 1
+has_disassembler = 1
 
 [component_1]
 type = Library
 name = CeespuCodeGen
 parent = Ceespu
-required_libraries =
- AsmPrinter
- CodeGen
- Core
- MC
- CeespuAsmPrinter
- CeespuDesc
- CeespuInfo
- SelectionDAG
- Support
- Target
+required_libraries = Core CodeGen MC CeespuAsmPrinter CeespuDesc
+  CeespuInfo SelectionDAG Support Target
 add_to_library_groups = Ceespu

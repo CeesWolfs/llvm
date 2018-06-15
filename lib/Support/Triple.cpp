@@ -29,6 +29,9 @@ StringRef Triple::getArchTypeName(ArchType Kind) {
   case avr:            return "avr";
   case bpfel:          return "bpfel";
   case bpfeb:          return "bpfeb";
+  case ceespu:         return "ceespu";
+  case ceespueb:       return "ceespueb";
+  case ceespuel:       return "ceespuel";
   case hexagon:        return "hexagon";
   case mips:           return "mips";
   case mipsel:         return "mipsel";
@@ -96,7 +99,11 @@ StringRef Triple::getArchTypePrefix(ArchType Kind) {
   case ppc64:
   case ppc64le:
   case ppc:         return "ppc";
-
+  
+  case ceespu:
+  case ceespueb:
+  case ceespuel:
+		    return "ceespu";
   case mips:
   case mipsel:
   case mips64:
@@ -265,6 +272,9 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("armeb", armeb)
     .Case("avr", avr)
     .StartsWith("bpf", BPFArch)
+    .Case("ceespu", ceespu)
+    .Case("ceespuel", ceespuel)
+    .Case("ceespueb", ceespueb)
     .Case("mips", mips)
     .Case("mipsel", mipsel)
     .Case("mips64", mips64)
@@ -396,6 +406,9 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("thumb", Triple::thumb)
     .Case("thumbeb", Triple::thumbeb)
     .Case("avr", Triple::avr)
+    .Case("ceespu", Triple::ceespu)
+    .Case("ceespuel", Triple::ceespuel)
+    .Case("ceespueb", Triple::ceespueb)
     .Case("msp430", Triple::msp430)
     .Cases("mips", "mipseb", "mipsallegrex", Triple::mips)
     .Cases("mipsel", "mipsallegrexel", Triple::mipsel)
@@ -635,6 +648,9 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::avr:
   case Triple::bpfeb:
   case Triple::bpfel:
+  case Triple::ceespu:
+  case Triple::ceespuel:
+  case Triple::ceespueb:
   case Triple::hexagon:
   case Triple::lanai:
   case Triple::hsail:
@@ -1181,6 +1197,9 @@ static unsigned getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
 
   case llvm::Triple::avr:
   case llvm::Triple::msp430:
+  case llvm::Triple::ceespu:
+  case llvm::Triple::ceespueb:
+  case llvm::Triple::ceespuel:
     return 16;
 
   case llvm::Triple::arc:
@@ -1419,7 +1438,7 @@ Triple Triple::getBigEndianArchVariant() const {
   case Triple::thumb:
     T.setArch(UnknownArch);
     break;
-
+  case Triple::ceespuel: T.setArch(Triple::ceespueb);  break;
   case Triple::tcele:   T.setArch(Triple::tce);        break;
   case Triple::aarch64: T.setArch(Triple::aarch64_be); break;
   case Triple::bpfel:   T.setArch(Triple::bpfeb);      break;
@@ -1455,6 +1474,7 @@ Triple Triple::getLittleEndianArchVariant() const {
   case Triple::tce:        T.setArch(Triple::tcele);    break;
   case Triple::aarch64_be: T.setArch(Triple::aarch64);  break;
   case Triple::bpfeb:      T.setArch(Triple::bpfel);    break;
+  case Triple::ceespueb: T.setArch(Triple::ceespuel);  break;
   case Triple::mips64:     T.setArch(Triple::mips64el); break;
   case Triple::mips:       T.setArch(Triple::mipsel);   break;
   case Triple::ppc64:      T.setArch(Triple::ppc64le);  break;
@@ -1474,6 +1494,7 @@ bool Triple::isLittleEndian() const {
   case Triple::arm:
   case Triple::avr:
   case Triple::bpfel:
+  case Triple::ceespuel:
   case Triple::hexagon:
   case Triple::hsail64:
   case Triple::hsail:

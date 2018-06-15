@@ -1,4 +1,5 @@
-//===-- CeespuFrameLowering.cpp - Ceespu Frame Information ----------------------===//
+//===-- CeespuFrameLowering.cpp - Ceespu Frame Information
+//------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,317 +13,255 @@
 //===----------------------------------------------------------------------===//
 
 #include "CeespuFrameLowering.h"
-#include "CeespuMachineFunction.h"
-#include "CeespuInstrInfo.h"
+#include "CeespuMachineFunctionInfo.h"
 #include "CeespuSubtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/RegisterScavenging.h"
 
 using namespace llvm;
 
 bool CeespuFrameLowering::hasFP(const MachineFunction &MF) const {
+  const TargetRegisterInfo *RegInfo = MF.getSubtarget().getRegisterInfo();
+
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   return MF.getTarget().Options.DisableFramePointerElim(MF) ||
-         MF.getFrameInfo()->hasVarSizedObjects();
+         RegInfo->needsStackRealignment(MF) || MFI.hasVarSizedObjects() ||
+         MFI.isFrameAddressTaken();
 }
 
-uint64_t CeespuFrameLowering::computeStackSize(MachineFunction &MF) const {
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  uint64_t StackSize = MFI->getStackSize();
-  unsigned StackAlign = getStackAlignment();
-  if (StackAlign > 0) {
-    StackSize = RoundUpToAlignment(StackSize, StackAlign);
+// Determines the size of the frame and maximum call frame size.
+void CeespuFrameLowering::determineFrameLayout(MachineFunction &MF) const {
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  const CeespuRegisterInfo *RI = STI.getRegisterInfo();
+
+  // Get the number of bytes to allocate from the FrameInfo.
+  uint64_t FrameSize = MFI.getStackSize();
+
+  // Get the alignment.
+  uint64_t StackAlign = RI->needsStackRealignment(MF) ? MFI.getMaxAlignment()
+                                                      : getStackAlignment();
+
+  // Make sure the frame is aligned.
+  FrameSize = alignTo(FrameSize, StackAlign);
+
+  // Update frame info.
+  MFI.setStackSize(FrameSize);
+}
+
+void CeespuFrameLowering::adjustReg(MachineBasicBlock &MBB,
+                                    MachineBasicBlock::iterator MBBI,
+                                    const DebugLoc &DL, unsigned DestReg,
+                                    unsigned SrcReg, int64_t Val,
+                                    MachineInstr::MIFlag Flag) const {
+  MachineRegisterInfo &MRI = MBB.getParent()->getRegInfo();
+  const CeespuInstrInfo *TII = STI.getInstrInfo();
+
+  if (DestReg == SrcReg && Val == 0) return;
+
+  if (isInt<12>(Val)) {
+    BuildMI(MBB, MBBI, DL, TII->get(Ceespu::ADDri), DestReg)
+        .addReg(SrcReg)
+        .addImm(Val)
+        .setMIFlag(Flag);
+  } else if (isInt<32>(Val)) {
+    unsigned Opc = Ceespu::ADDrr;
+    bool isSub = Val < 0;
+    if (isSub) {
+      Val = -Val;
+      Opc = Ceespu::SUBrr;
+    }
+
+    unsigned ScratchReg = MRI.createVirtualRegister(&Ceespu::GPR);
+    TII->movImm32(MBB, MBBI, DL, ScratchReg, Val, Flag);
+    BuildMI(MBB, MBBI, DL, TII->get(Opc), DestReg)
+        .addReg(SrcReg)
+        .addReg(ScratchReg, RegState::Kill)
+        .setMIFlag(Flag);
+  } else {
+    report_fatal_error("adjustReg cannot yet handle adjustments >32 bits");
   }
-  return StackSize;
 }
 
-static void replaceFrameIndexes(MachineFunction &MF,
-	SmallVector<std::pair<int, int64_t>, 16> &FR) {
-	MachineFrameInfo *MFI = MF.getFrameInfo();
-	CeespuFunctionInfo *CeespuFI = MF.getInfo<CeespuFunctionInfo>();
-	const SmallVector<std::pair<int, int64_t>, 16>::iterator FRB = FR.begin();
-	const SmallVector<std::pair<int, int64_t>, 16>::iterator FRE = FR.end();
-	printf("strange faces");
-	SmallVector<std::pair<int, int64_t>, 16>::iterator FRI = FRB;
-	for (; FRI != FRE; ++FRI) {
-		MFI->RemoveStackObject(FRI->first);
-		int NFI = MFI->CreateFixedObject(4, FRI->second, true);
-		CeespuFI->recordReplacement(FRI->first, NFI);
+// Returns the register used to hold the frame pointer.
+static unsigned getFPReg(const CeespuSubtarget &STI) { return Ceespu::R17; }
 
-		for (MachineFunction::iterator MB = MF.begin(), ME = MF.end(); MB != ME; ++MB) {
-			MachineBasicBlock::iterator MBB = MB->begin();
-			const MachineBasicBlock::iterator MBE = MB->end();
-
-			for (; MBB != MBE; ++MBB) {
-				MachineInstr::mop_iterator MIB = MBB->operands_begin();
-				const MachineInstr::mop_iterator MIE = MBB->operands_end();
-
-				for (MachineInstr::mop_iterator MII = MIB; MII != MIE; ++MII) {
-					if (!MII->isFI() || MII->getIndex() != FRI->first) continue;
-					//DEBUG(dbgs() << "FOUND FI#" << MII->getIndex() << "\n");
-					MII->setIndex(NFI);
-				}
-			}
-		}
-	}
-}
-
-//===----------------------------------------------------------------------===//
-//
-// Stack Frame Processing methods
-// +----------------------------+
-//
-// The stack is allocated decrementing the stack pointer on
-// the first instruction of a function prologue. Once decremented,
-// all stack references are are done through a positive offset
-// from the stack/frame pointer, so the stack is considered
-// to grow up.
-//
-//===----------------------------------------------------------------------===//
-
-static void analyzeFrameIndexes(MachineFunction &MF) {
-
-	MachineFrameInfo *MFI = MF.getFrameInfo();
-	CeespuFunctionInfo *CeespuFI = MF.getInfo<CeespuFunctionInfo>();
-	const MachineRegisterInfo &MRI = MF.getRegInfo();
-
-	MachineRegisterInfo::livein_iterator LII = MRI.livein_begin();
-	MachineRegisterInfo::livein_iterator LIE = MRI.livein_end();
-	const SmallVector<int, 16> &LiveInFI = CeespuFI->getLiveIn();
-	SmallVector<MachineInstr*, 16> EraseInstr;
-	SmallVector<std::pair<int, int64_t>, 16> FrameRelocate;
-
-	MachineBasicBlock *MBB = MF.getBlockNumbered(0);
-	MachineBasicBlock::iterator MIB = MBB->begin();
-	MachineBasicBlock::iterator MIE = MBB->end();
-
-	int StackAdjust = 4;
-	int StackOffset = -28;
-
-	// In this loop we are searching frame indexes that corrospond to incoming
-	// arguments that are already in the stack. We look for instruction sequences
-	// like the following:
-	//    
-	//    LWI REG, FI1, 0
-	//    ...
-	//    SWI REG, FI2, 0
-	//
-	// As long as there are no defs of REG in the ... part, we can eliminate
-	// the SWI instruction because the value has already been stored to the
-	// stack by the caller. All we need to do is locate FI at the correct
-	// stack location according to the calling convensions.
-	//
-	// Additionally, if the SWI operation kills the def of REG then we don't
-	// need the LWI operation so we can erase it as well.
-	for (unsigned i = 0, e = LiveInFI.size(); i < e; ++i) {
-		for (MachineBasicBlock::iterator I = MIB; I != MIE; ++I) {
-			if (I->getOpcode() != Ceespu::LDW || I->getNumOperands() != 3 ||
-				!I->getOperand(1).isFI() || !I->getOperand(0).isReg() ||
-				I->getOperand(1).getIndex() != LiveInFI[i]) continue;
-
-			unsigned FIReg = I->getOperand(0).getReg();
-			MachineBasicBlock::iterator SI = I;
-			for (SI++; SI != MIE; ++SI) {
-				if (!SI->getOperand(0).isReg() ||
-					!SI->getOperand(1).isFI() ||
-					SI->getOpcode() != Ceespu::STW) continue;
-
-				int FI = SI->getOperand(1).getIndex();
-				if (SI->getOperand(0).getReg() != FIReg ||
-					MFI->isFixedObjectIndex(FI) ||
-					MFI->getObjectSize(FI) != 4) continue;
-
-				if (SI->getOperand(0).isDef()) break;
-
-				if (SI->getOperand(0).isKill()) {
-					//DEBUG(dbgs() << "LWI for FI#" << I->getOperand(1).getIndex()
-					//	<< " removed\n");
-					EraseInstr.push_back(I);
-				}
-
-				EraseInstr.push_back(SI);
-				//DEBUG(dbgs() << "SWI for FI#" << FI << " removed\n");
-
-				FrameRelocate.push_back(std::make_pair(FI, StackOffset));
-				//DEBUG(dbgs() << "FI#" << FI << " relocated to " << StackOffset << "\n");
-
-				StackOffset -= 4;
-				StackAdjust += 4;
-				break;
-			}
-		}
-	}
-
-	// In this loop we are searching for frame indexes that corrospond to
-	// incoming arguments that are in registers. We look for instruction
-	// sequences like the following:
-	//    
-	//    ...  SWI REG, FI, 0
-	// 
-	// As long as the ... part does not define REG and if REG is an incoming
-	// parameter register then we know that, according to ABI convensions, the
-	// caller has allocated stack space for it already.  Instead of allocating
-	// stack space on our frame, we record the correct location in the callers
-	// frame.
-	/*for (MachineRegisterInfo::livein_iterator LI = LII; LI != LIE; ++LI) {
-		for (MachineBasicBlock::iterator I = MIB; I != MIE; ++I) {
-			if (I->definesRegister(LI->first))
-				break;
-
-			if (I->getOpcode() != Ceespu::SWI || I->getNumOperands() != 3 ||
-				!I->getOperand(1).isFI() || !I->getOperand(0).isReg() ||
-				I->getOperand(1).getIndex() < 0) continue;
-
-			if (I->getOperand(0).getReg() == LI->first) {
-				int FI = I->getOperand(1).getIndex();
-				CeespuFI->recordLiveIn(FI);
-
-				int FILoc = 0;
-				switch (LI->first) {
-				default: llvm_unreachable("invalid incoming parameter!");
-				case Ceespu::R5:  FILoc = -4; break;
-				case Ceespu::R6:  FILoc = -8; break;
-				case Ceespu::R7:  FILoc = -12; break;
-				case Ceespu::R8:  FILoc = -16; break;
-				case Ceespu::R9:  FILoc = -20; break;
-				case Ceespu::R10: FILoc = -24; break;
-				}
-
-				StackAdjust += 4;
-				FrameRelocate.push_back(std::make_pair(FI, FILoc));
-				DEBUG(dbgs() << "FI#" << FI << " relocated to " << FILoc << "\n");
-				break;
-			}
-		}
-	}*/
-
-	// Go ahead and erase all of the instructions that we determined were
-	// no longer needed.
-	for (int i = 0, e = EraseInstr.size(); i < e; ++i)
-		MBB->erase(EraseInstr[i]);
-
-	// Replace all of the frame indexes that we have relocated with new
-	// fixed object frame indexes.
-	replaceFrameIndexes(MF, FrameRelocate);
-}
-
-static void determineFrameLayout(MachineFunction &MF) {
-	MachineFrameInfo *MFI = MF.getFrameInfo();
-	CeespuFunctionInfo *CeespuFI = MF.getInfo<CeespuFunctionInfo>();
-
-	// Replace the dummy '0' SPOffset by the negative offsets, as explained on
-	// LowerFORMAL_ARGUMENTS. Leaving '0' for while is necessary to avoid
-	// the approach done by calculateFrameObjectOffsets to the stack frame.
-	CeespuFI->adjustStoreVarArgsFI(MFI);
-	// Get the number of bytes to allocate from the FrameInfo
-	unsigned FrameSize = MFI->getStackSize();
-	//DEBUG(dbgs() << "Original Frame Size: " << FrameSize << "\n");
-
-	// Get the alignments provided by the target, and the maximum alignment
-	// (if any) of the fixed frame objects.
-	// unsigned MaxAlign = MFI->getMaxAlignment();
-	unsigned TargetAlign = 4;
-	unsigned AlignMask = TargetAlign - 1;
-	// Make sure the frame is aligned.
-	FrameSize = (FrameSize + AlignMask) & ~AlignMask;
-	MFI->setStackSize(FrameSize);
-	CeespuFI->adjustLoadArgsFI(MFI, FrameSize);
-	//DEBUG(dbgs() << "Aligned Frame Size: " << FrameSize << "\n");
-}
-
-// Materialize an offset for a ADD/SUB stack operation.
-// Return zero if the offset fits into the instruction as an immediate,
-// or the number of the register where the offset is materialized.
-static unsigned materializeOffset(MachineFunction &MF, MachineBasicBlock &MBB,
-                                  MachineBasicBlock::iterator MBBI,
-                                  unsigned Offset) {
-  return 0;
-}
+// Returns the register used to hold the stack pointer.
+static unsigned getSPReg(const CeespuSubtarget &STI) { return Ceespu::CSP; }
 
 void CeespuFrameLowering::emitPrologue(MachineFunction &MF,
-                                    MachineBasicBlock &MBB) const {
-  // Compute the stack size, to determine if we need a prologue at all.
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+                                       MachineBasicBlock &MBB) const {
+  assert(&MF.front() == &MBB && "Shrink-wrapping not yet supported");
+
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  auto *RVFI = MF.getInfo<CeespuMachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+
+  unsigned FPReg = getFPReg(STI);
+  unsigned SPReg = getSPReg(STI);
+
+  // Debug location must be unknown since the first debug location is used
+  // to determine the end of the prologue.
+  DebugLoc DL;
+
+  // Determine the correct frame layout
   determineFrameLayout(MF);
-  uint64_t StackSize = computeStackSize(MF);
-  if (!StackSize) {
-    return;
-  }
-  
-  // Adjust the stack pointer.
-  unsigned StackReg = Ceespu::SP;
-  unsigned OffsetReg = materializeOffset(MF, MBB, MBBI, (unsigned)StackSize);
-  if (OffsetReg) {
-    BuildMI(MBB, MBBI, dl, TII.get(Ceespu::SUB_rr), StackReg)
-        .addReg(StackReg)
-        .addReg(OffsetReg)
-        .setMIFlag(MachineInstr::FrameSetup);
-  } else {
-    BuildMI(MBB, MBBI, dl, TII.get(Ceespu::ADD_ri), StackReg)
-        .addReg(StackReg)
-        .addImm(-StackSize)
-        .setMIFlag(MachineInstr::FrameSetup);
-  }
+
+  // FIXME (note copied from Lanai): This appears to be overallocating.  Needs
+  // investigation. Get the number of bytes to allocate from the FrameInfo.
+  uint64_t StackSize = MFI.getStackSize();
+
+  // Early exit if there is no need to allocate on the stack
+  if (StackSize == 0 && !MFI.adjustsStack()) return;
+
+  // Allocate space on the stack if necessary.
+  adjustReg(MBB, MBBI, DL, SPReg, SPReg, -StackSize, MachineInstr::FrameSetup);
+
+  // The frame pointer is callee-saved, and code has been generated for us to
+  // save it to the stack. We need to skip over the storing of callee-saved
+  // registers as the frame pointer must be modified after it has been saved
+  // to the stack, not before.
+  // FIXME: assumes exactly one instruction is used to save each callee-saved
+  // register.
+  const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
+  std::advance(MBBI, CSI.size());
+
+  // Generate new FP.
+  if (hasFP(MF))
+    adjustReg(MBB, MBBI, DL, FPReg, SPReg,
+              StackSize - RVFI->getVarArgsSaveSize(), MachineInstr::FrameSetup);
 }
 
 void CeespuFrameLowering::emitEpilogue(MachineFunction &MF,
-                                    MachineBasicBlock &MBB) const {
-  // Compute the stack size, to determine if we need an epilogue at all.
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+                                       MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
-  DebugLoc dl = MBBI->getDebugLoc();
-  uint64_t StackSize = computeStackSize(MF);
-  if (!StackSize) {
-    return;
+  const CeespuRegisterInfo *RI = STI.getRegisterInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  auto *RVFI = MF.getInfo<CeespuMachineFunctionInfo>();
+  DebugLoc DL = MBBI->getDebugLoc();
+  unsigned FPReg = getFPReg(STI);
+  unsigned SPReg = getSPReg(STI);
+
+  // Skip to before the restores of callee-saved registers
+  // FIXME: assumes exactly one instruction is used to restore each
+  // callee-saved register.
+  MachineBasicBlock::iterator LastFrameDestroy = MBBI;
+  std::advance(LastFrameDestroy, -MFI.getCalleeSavedInfo().size());
+
+  uint64_t StackSize = MFI.getStackSize();
+
+  // Restore the stack pointer using the value of the frame pointer. Only
+  // necessary if the stack pointer was modified, meaning the stack size is
+  // unknown.
+  if (RI->needsStackRealignment(MF) || MFI.hasVarSizedObjects()) {
+    assert(hasFP(MF) && "frame pointer should not have been eliminated");
+    adjustReg(MBB, LastFrameDestroy, DL, SPReg, FPReg,
+              -StackSize + RVFI->getVarArgsSaveSize(),
+              MachineInstr::FrameDestroy);
   }
 
-  // Restore the stack pointer to what it was at the beginning of the function.
-  unsigned StackReg = Ceespu::SP;
-  unsigned OffsetReg = materializeOffset(MF, MBB, MBBI, (unsigned)StackSize);
-  if (OffsetReg) {
-    BuildMI(MBB, MBBI, dl, TII.get(Ceespu::ADD_rr), StackReg)
-        .addReg(StackReg)
-        .addReg(OffsetReg)
-        .setMIFlag(MachineInstr::FrameSetup);
+  // Deallocate stack
+  adjustReg(MBB, MBBI, DL, SPReg, SPReg, StackSize, MachineInstr::FrameDestroy);
+}
+
+int CeespuFrameLowering::getFrameIndexReference(const MachineFunction &MF,
+                                                int FI,
+                                                unsigned &FrameReg) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  const TargetRegisterInfo *RI = MF.getSubtarget().getRegisterInfo();
+  const auto *RVFI = MF.getInfo<CeespuMachineFunctionInfo>();
+
+  // Callee-saved registers should be referenced relative to the stack
+  // pointer (positive offset), otherwise use the frame pointer (negative
+  // offset).
+  const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
+  int MinCSFI = 0;
+  int MaxCSFI = -1;
+
+  int Offset = MFI.getObjectOffset(FI) - getOffsetOfLocalArea() +
+               MFI.getOffsetAdjustment();
+
+  if (CSI.size()) {
+    MinCSFI = CSI[0].getFrameIdx();
+    MaxCSFI = CSI[CSI.size() - 1].getFrameIdx();
+  }
+
+  if (FI >= MinCSFI && FI <= MaxCSFI) {
+    FrameReg = Ceespu::SP;
+    Offset += MF.getFrameInfo().getStackSize();
   } else {
-    BuildMI(MBB, MBBI, dl, TII.get(Ceespu::ADD_ri), StackReg)
-        .addReg(StackReg)
-        .addImm(StackSize)
-        .setMIFlag(MachineInstr::FrameSetup);
+    FrameReg = RI->getFrameRegister(MF);
+    if (hasFP(MF))
+      Offset += RVFI->getVarArgsSaveSize();
+    else
+      Offset += MF.getFrameInfo().getStackSize();
+  }
+  return Offset;
+}
+
+void CeespuFrameLowering::determineCalleeSaves(MachineFunction &MF,
+                                               BitVector &SavedRegs,
+                                               RegScavenger *RS) const {
+  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
+  // Unconditionally spill RA and FP only if the function uses a frame
+  // pointer.
+  if (hasFP(MF)) {
+    SavedRegs.set(Ceespu::FP);
   }
 }
 
-// This function eliminates ADJCALLSTACKDOWN, ADJCALLSTACKUP pseudo
-// instructions
-void CeespuFrameLowering::eliminateCallFramePseudoInstr(
+void CeespuFrameLowering::processFunctionBeforeFrameFinalized(
+    MachineFunction &MF, RegScavenger *RS) const {
+  const TargetRegisterInfo *RegInfo = MF.getSubtarget().getRegisterInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  const TargetRegisterClass *RC = &Ceespu::GPRRegClass;
+  // estimateStackSize has been observed to under-estimate the final stack
+  // size, so give ourselves wiggle-room by checking for stack size
+  // representable an 11-bit signed field rather than 12-bits.
+  // FIXME: It may be possible to craft a function with a small stack that
+  // still needs an emergency spill slot for branch relaxation. This case
+  // would currently be missed.
+  if (!isInt<11>(MFI.estimateStackSize(MF))) {
+    int RegScavFI = MFI.CreateStackObject(
+        RegInfo->getSpillSize(*RC), RegInfo->getSpillAlignment(*RC), false);
+    RS->addScavengingFrameIndex(RegScavFI);
+  }
+}
+
+// Not preserve stack space within prologue for outgoing variables when the
+// function contains variable size objects and let eliminateCallFramePseudoInstr
+// preserve stack space for it.
+bool CeespuFrameLowering::hasReservedCallFrame(
+    const MachineFunction &MF) const {
+  return !MF.getFrameInfo().hasVarSizedObjects();
+}
+
+// Eliminate ADJCALLSTACKDOWN, ADJCALLSTACKUP pseudo instructions.
+MachineBasicBlock::iterator CeespuFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
-    MachineBasicBlock::iterator I) const {
-  if (I->getOpcode() == Ceespu::ADJCALLSTACKUP ||
-      I->getOpcode() == Ceespu::ADJCALLSTACKDOWN) {
-    MBB.erase(I);
+    MachineBasicBlock::iterator MI) const {
+  unsigned SPReg = Ceespu::SP;
+  DebugLoc DL = MI->getDebugLoc();
+
+  if (!hasReservedCallFrame(MF)) {
+    // If space has not been reserved for a call frame, ADJCALLSTACKDOWN and
+    // ADJCALLSTACKUP must be converted to instructions manipulating the stack
+    // pointer. This is necessary when there is a variable length stack
+    // allocation (e.g. alloca), which means it's not possible to allocate
+    // space for outgoing arguments from within the function prologue.
+    int64_t Amount = MI->getOperand(0).getImm();
+
+    if (Amount != 0) {
+      // Ensure the stack remains aligned after adjustment.
+      Amount = alignSPAdjust(Amount);
+
+      if (MI->getOpcode() == Ceespu::ADJCALLSTACKDOWN) Amount = -Amount;
+
+      adjustReg(MBB, MI, DL, SPReg, SPReg, Amount, MachineInstr::NoFlags);
+    }
   }
-  return;
+
+  return MBB.erase(MI);
 }
-
-void CeespuFrameLowering::
-processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-	RegScavenger *RS) const {
-	MachineFrameInfo *MFI = MF.getFrameInfo();
-	CeespuFunctionInfo *CeespuFI = MF.getInfo<CeespuFunctionInfo>();
-	CallingConv::ID CallConv = MF.getFunction()->getCallingConv();
-
-	if (hasFP(MF)) {
-		CeespuFI->setFPStackOffset(4);
-		MFI->CreateFixedObject(4, 4, true);
-	}
-	printf("poptard");
-	analyzeFrameIndexes(MF);
-}
-

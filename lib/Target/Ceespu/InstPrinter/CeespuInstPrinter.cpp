@@ -1,4 +1,4 @@
-//===-- CeespuInstPrinter.cpp - Convert Ceespu MCInst to asm syntax -------------===//
+//===-- CeespuInstPrinter.cpp - Convert Ceespu MCInst to asm syntax ---------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,12 +11,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ceespu.h"
 #include "CeespuInstPrinter.h"
+#include "MCTargetDesc/CeespuBaseInfo.h"
+#include "MCTargetDesc/CeespuMCExpr.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
 using namespace llvm;
@@ -24,65 +28,75 @@ using namespace llvm;
 #define DEBUG_TYPE "asm-printer"
 
 // Include the auto-generated portion of the assembly writer.
+#define PRINT_ALIAS_INSTR
 #include "CeespuGenAsmWriter.inc"
 
+// Include the auto-generated portion of the compress emitter.
+#define GEN_UNCOMPRESS_INSTR
+//#include "CeespuGenCompressInstEmitter.inc"
+
+static cl::opt<bool>
+NoAliases("ceespu-no-aliases",
+            cl::desc("Disable the emission of assembler pseudo instructions"),
+            cl::init(false),
+            cl::Hidden);
+
 void CeespuInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                               StringRef Annot, const MCSubtargetInfo &STI) {
-  printInstruction(MI, O);
+                                 StringRef Annot, const MCSubtargetInfo &STI) {
+  bool Res = false;
+  const MCInst *NewMI = MI;
+  MCInst UncompressedMI;
+  if (!NoAliases)
+    Res = uncompressInst(UncompressedMI, *MI, MRI, STI);
+  if (Res)
+    NewMI = const_cast<MCInst*>(&UncompressedMI);
+  if (NoAliases || !printAliasInstr(NewMI, STI, O))
+    printInstruction(NewMI, STI, O);
   printAnnotation(O, Annot);
 }
 
-static void printExpr(const MCExpr *Expr, raw_ostream &O) {
-#ifndef NDEBUG
-  const MCSymbolRefExpr *SRE;
-
-  if (const MCBinaryExpr *BE = dyn_cast<MCBinaryExpr>(Expr))
-    SRE = dyn_cast<MCSymbolRefExpr>(BE->getLHS());
-  else
-    SRE = dyn_cast<MCSymbolRefExpr>(Expr);
-  assert(SRE && "Unexpected MCExpr type.");
-
-  MCSymbolRefExpr::VariantKind Kind = SRE->getKind();
-
-  assert(Kind == MCSymbolRefExpr::VK_None);
-#endif
-  O << *Expr;
+void CeespuInstPrinter::printRegName(raw_ostream &O, unsigned RegNo) const {
+  O << getRegisterName(RegNo);
 }
 
 void CeespuInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                  raw_ostream &O, const char *Modifier) {
+                                    const MCSubtargetInfo &STI,
+                                    raw_ostream &O, const char *Modifier) {
   assert((Modifier == 0 || Modifier[0] == 0) && "No modifiers supported");
-  const MCOperand &Op = MI->getOperand(OpNo);
-  if (Op.isReg()) {
-    O << getRegisterName(Op.getReg());
-  } else if (Op.isImm()) {
-    O << (int32_t)Op.getImm();
-  } else {
-    assert(Op.isExpr() && "Expected an expression");
-    printExpr(Op.getExpr(), O);
+  const MCOperand &MO = MI->getOperand(OpNo);
+
+  if (MO.isReg()) {
+    printRegName(O, MO.getReg());
+    return;
   }
+
+  if (MO.isImm()) {
+    O << MO.getImm();
+    return;
+  }
+
+  assert(MO.isExpr() && "Unknown operand kind in printOperand");
+  MO.getExpr()->print(O, &MAI);
 }
 
-void CeespuInstPrinter::printMemOperand(const MCInst *MI, int OpNo, raw_ostream &O,
-                                     const char *Modifier) {
-  const MCOperand &RegOp = MI->getOperand(OpNo);
-  const MCOperand &OffsetOp = MI->getOperand(OpNo + 1);
-  // offset
-  if (OffsetOp.isImm())
-    O << formatDec(OffsetOp.getImm());
-  else
-    assert(0 && "Expected an immediate");
-
-  // register
-  assert(RegOp.isReg() && "Register operand not a register");
-  O << '(' << getRegisterName(RegOp.getReg()) << ')';
+void CeespuInstPrinter::printFenceArg(const MCInst *MI, unsigned OpNo,
+                                     const MCSubtargetInfo &STI,
+                                     raw_ostream &O) {
+  unsigned FenceArg = MI->getOperand(OpNo).getImm();
+  if ((FenceArg & CeespuFenceField::I) != 0)
+    O << 'i';
+  if ((FenceArg & CeespuFenceField::O) != 0)
+    O << 'o';
+  if ((FenceArg & CeespuFenceField::R) != 0)
+    O << 'r';
+  if ((FenceArg & CeespuFenceField::W) != 0)
+    O << 'w';
 }
 
-void CeespuInstPrinter::printImm32Operand(const MCInst *MI, unsigned OpNo,
-                                       raw_ostream &O) {
-  const MCOperand &Op = MI->getOperand(OpNo);
-  if (Op.isImm())
-    O << (uint32_t)Op.getImm();
-  else
-    O << Op;
+void CeespuInstPrinter::printFRMArg(const MCInst *MI, unsigned OpNo,
+                                   const MCSubtargetInfo &STI,
+                                   raw_ostream &O) {
+  auto FRMArg =
+      static_cast<CeespuFPRndMode::RoundingMode>(MI->getOperand(OpNo).getImm());
+  O << CeespuFPRndMode::roundingModeToString(FRMArg);
 }

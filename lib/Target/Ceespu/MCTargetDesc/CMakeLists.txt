@@ -1,6 +1,10 @@
 add_llvm_library(LLVMCeespuDesc
-  CeespuMCTargetDesc.cpp
   CeespuAsmBackend.cpp
-  CeespuMCCodeEmitter.cpp
   CeespuELFObjectWriter.cpp
-  )
+  CeespuMCAsmInfo.cpp
+  CeespuMCCodeEmitter.cpp
+  CeespuMCExpr.cpp
+  CeespuMCTargetDesc.cpp
+  CeespuTargetStreamer.cpp
+  CeespuELFStreamer.cpp
+)

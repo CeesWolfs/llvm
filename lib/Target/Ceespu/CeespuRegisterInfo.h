@@ -1,5 +1,4 @@
-//===-- CeespuRegisterInfo.h - Ceespu Register Information Impl -------*- C++
-//-*-===//
+//===-- CeespuRegisterInfo.h - Ceespu Register Information Impl ---*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -23,18 +22,38 @@
 namespace llvm {
 
 struct CeespuRegisterInfo : public CeespuGenRegisterInfo {
-  CeespuRegisterInfo();
+
+  CeespuRegisterInfo(unsigned HwMode);
+
+  const uint32_t *getCallPreservedMask(const MachineFunction &MF,
+                                       CallingConv::ID) const override;
 
   const MCPhysReg *getCalleeSavedRegs(const MachineFunction *MF) const override;
 
   BitVector getReservedRegs(const MachineFunction &MF) const override;
+
+  bool isConstantPhysReg(unsigned PhysReg) const override;
+
+  const uint32_t *getNoPreservedMask() const override;
 
   void eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,
                            unsigned FIOperandNum,
                            RegScavenger *RS = nullptr) const override;
 
   unsigned getFrameRegister(const MachineFunction &MF) const override;
+
+  bool requiresRegisterScavenging(const MachineFunction &MF) const override {
+    return true;
+  }
+
+  bool requiresFrameIndexScavenging(const MachineFunction &MF) const override {
+    return true;
+  }
+
+  bool trackLivenessAfterRegAlloc(const MachineFunction &) const override {
+    return true;
+  }
 };
-}  // namespace llvm
+}
 
 #endif

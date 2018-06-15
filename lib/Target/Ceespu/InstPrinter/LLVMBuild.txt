@@ -1,4 +1,4 @@
-;===- ./lib/Target/Ceespu/InstPrinter/LLVMBuild.txt ---------------*- Conf -*--===;
+;===- ./lib/Target/Ceespu/InstPrinter/LLVMBuild.txt -------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;

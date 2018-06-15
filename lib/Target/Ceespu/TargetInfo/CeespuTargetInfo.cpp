@@ -1,5 +1,5 @@
 //===-- CeespuTargetInfo.cpp - Ceespu Target Implementation
-//---------------------===//
+//-----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -8,21 +8,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ceespu.h"
 #include "llvm/Support/TargetRegistry.h"
 using namespace llvm;
 
 namespace llvm {
-Target TheCeespuleTarget;
-Target TheCeespubeTarget;
-Target TheCeespuTarget;
+Target &getTheCeespuTarget() {
+  static Target TheCeespuTarget;
+  return TheCeespuTarget;
+}
+
+Target &getTheCeespuebTarget() {
+  static Target TheCeespuebTarget;
+  return TheCeespuebTarget;
+}
 }  // namespace llvm
 
 extern "C" void LLVMInitializeCeespuTargetInfo() {
-  RegisterTarget<Triple::Ceespu, /*HasJIT=*/false> X(
-      TheCeespuleTarget, "Ceespu", "Ceespu (host endian)", "Ceespu");
-  RegisterTarget<Triple::Ceespuel, /*HasJIT=*/false> Y(
-      TheCeespuleTarget, "Ceespuel", "Ceespu (little endian)", "Ceespu");
-  RegisterTarget<Triple::Ceespueb, /*HasJIT=*/false> Z(
-      TheCeespubeTarget, "Ceespueb", "Ceespu (big endian)", "Ceespu");
+  RegisterTarget<Triple::Ceespu> X(getTheCeespuTarget(), "ceespu",
+                                   "Ceespu (host endian)", "Ceespu");
+  RegisterTarget<Triple::Ceespueb> Y(getTheCeespuebTarget(), "ceespu",
+                                     "Ceespu (big endian)", "Ceespu");
 }

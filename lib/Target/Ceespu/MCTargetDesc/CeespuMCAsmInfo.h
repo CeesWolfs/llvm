@@ -1,4 +1,4 @@
-//===-- CeespuMCAsmInfo.h - Ceespu asm properties -------------------*- C++ -*--====//
+//===-- CeespuMCAsmInfo.h - Ceespu Asm Info ----------------------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -14,34 +14,18 @@
 #ifndef LLVM_LIB_TARGET_Ceespu_MCTARGETDESC_CeespuMCASMINFO_H
 #define LLVM_LIB_TARGET_Ceespu_MCTARGETDESC_CeespuMCASMINFO_H
 
-#include "llvm/ADT/StringRef.h"
-#include "llvm/MC/MCAsmInfo.h"
-#include "llvm/ADT/Triple.h"
+#include "llvm/MC/MCAsmInfoELF.h"
 
 namespace llvm {
-class Target;
 class Triple;
 
-class CeespuMCAsmInfo : public MCAsmInfo {
+class CeespuMCAsmInfo : public MCAsmInfoELF {
+  void anchor() override;
+
 public:
-  explicit CeespuMCAsmInfo(const Triple &TT) {
-    if (TT.getArch() == Triple::Ceespueb)
-      IsLittleEndian = false;
-
-    WeakRefDirective = "\t.weak\t";
-    Data16bitsDirective = ".hword ";
-    Data32bitsDirective = ".word ";
-    ZeroDirective = ".space ";
-    CommentString = ";";
-    AscizDirective = ".ascii ";
-	PrivateLabelPrefix = "LP";
-    UsesELFSectionDirectiveForBSS = true;
-    HasSingleParameterDotFile = false;
-    HasDotTypeDotSizeDirective = false;
-
-    SupportsDebugInformation = true;
-  }
+  explicit CeespuMCAsmInfo(const Triple &TargetTriple);
 };
-}
+
+} // namespace llvm
 
 #endif

@@ -1,5 +1,4 @@
-//===-- CeespuMCTargetDesc.h - Ceespu Target Descriptions -------------*- C++
-//-*-===//
+//===-- CeespuMCTargetDesc.h - Ceespu Target Descriptions ---------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -15,9 +14,10 @@
 #ifndef LLVM_LIB_TARGET_Ceespu_MCTARGETDESC_CeespuMCTARGETDESC_H
 #define LLVM_LIB_TARGET_Ceespu_MCTARGETDESC_CeespuMCTARGETDESC_H
 
-#include <memory>
 #include "llvm/Config/config.h"
+#include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Support/DataTypes.h"
+#include <memory>
 
 namespace llvm {
 class MCAsmBackend;
@@ -33,35 +33,26 @@ class Triple;
 class raw_ostream;
 class raw_pwrite_stream;
 
-extern Target TheCeespuleTarget;
-extern Target TheCeespubeTarget;
-extern Target TheCeespuTarget;
+Target &getTheCeespu32Target();
+Target &getTheCeespu64Target();
 
 MCCodeEmitter *createCeespuMCCodeEmitter(const MCInstrInfo &MCII,
-                                         const MCRegisterInfo &MRI,
-                                         MCContext &Ctx);
-MCCodeEmitter *createCeespubeMCCodeEmitter(const MCInstrInfo &MCII,
-                                           const MCRegisterInfo &MRI,
-                                           MCContext &Ctx);
+                                        const MCRegisterInfo &MRI,
+                                        MCContext &Ctx);
 
-MCAsmBackend *createCeespuAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                     const Triple &TT, StringRef CPU);
-MCAsmBackend *createCeespubeAsmBackend(const Target &T,
-                                       const MCRegisterInfo &MRI,
-                                       const Triple &TT, StringRef CPU);
+MCAsmBackend *createCeespuAsmBackend(const Target &T, const MCSubtargetInfo &STI,
+                                    const MCRegisterInfo &MRI,
+                                    const MCTargetOptions &Options);
 
-std::unique_ptr<MCObjectTargetWriter> createCeespuELFObjectWriter(
-    uint8_t OSABI);
-}  // namespace llvm
+std::unique_ptr<MCObjectTargetWriter> createCeespuELFObjectWriter(uint8_t OSABI,
+                                                                 bool Is64Bit);
+}
 
-// Defines symbolic names for Ceespu registers.  This defines a mapping from
-// register name to register number.
-//
+// Defines symbolic names for RISC-V registers.
 #define GET_REGINFO_ENUM
 #include "CeespuGenRegisterInfo.inc"
 
-// Defines symbolic names for the Ceespu instructions.
-//
+// Defines symbolic names for RISC-V instructions.
 #define GET_INSTRINFO_ENUM
 #include "CeespuGenInstrInfo.inc"
 

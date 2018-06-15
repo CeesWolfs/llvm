@@ -43,6 +43,20 @@ def Ceespubrcc         : SDNode<"CeespuISD::BR_CC", SDT_CeespuBrCC,
 def Ceespuselectcc     : SDNode<"CeespuISD::SELECT_CC", SDT_CeespuSelectCC, [SDNPInGlue]>;
 def CeespuWrapper      : SDNode<"CeespuISD::Wrapper", SDT_CeespuWrapper>;
 
+// Extract bits 0-15 (low-end) of an immediate value.
+def LO16 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((uint64_t)N->getZExtValue() & 0xffff,
+                                   SDLoc(N), MVT::i32);
+}]>;
+
+// Extract bits 16-31 (high-end) of an immediate value.
+// Transformation function: shift the immediate value down into the low bits.
+def HI16 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((uint64_t)N->getZExtValue() >> 16, SDLoc(N),
+                                   MVT::i32);
+}]>;
+
+
 def brtarget : Operand<OtherVT>;
 def calltarget : Operand<i16>;
 
@@ -53,8 +67,12 @@ def u32imm   : Operand<i32> {
 def i32immSExt16 : PatLeaf<(imm),
                 [{return isInt<16>(N->getSExtValue()); }]>;
 
+def u5imm : Operand<i32>, ImmLeaf<i32, [{return isUInt<5>(Imm);}]> {
+  let DecoderMethod = "decodeUImmOperand<5>";
+}
+
 // Addressing modes.
-def ADDRri : ComplexPattern<i32, 2, "SelectAddr", [], []>;
+def ADDR : ComplexPattern<i32, 2, "SelectAddr", [], []>;
 def FIri : ComplexPattern<i32, 2, "SelectFIAddr", [add, or], []>;
 
 // Address operands
@@ -79,348 +97,212 @@ def Ceespu_CC_GEU : PatLeaf<(imm),
                          [{return (N->getZExtValue() == ISD::SETUGE);}]>;
 
 // jump instructions
-class JMP_RR<bits<6> Opc, string OpcodeStr, PatLeaf Cond>
-    : InstCeespu<(outs), (ins GPR:$dst, GPR:$src, brtarget:$BrDst),
-              !strconcat(OpcodeStr, " $dst, $src, $BrDst"),
-              [(Ceespubrcc i32:$dst, i32:$src, Cond, bb:$BrDst)]> {
-  bits<6> op;
-  bits<5> dst;
-  bits<5> src;
-  bits<16> BrDst;
-
-  let Inst{31-26} = Opc;
-  let Inst{25-21} = src;
-  let Inst{20-16} = dst;
-  let Inst{15-0} = BrDst;
-
-  let op = Opc;
-}
-/*
-class JMP_RI<bits<4> Opc, string OpcodeStr, PatLeaf Cond>
-    : InstCeespu<(outs), (ins GPR:$dst, i64imm:$imm, brtarget:$BrDst),
-              !strconcat(OpcodeStr, "i $dst, $imm goto $BrDst"),
-              [(Ceespubrcc i64:$dst, i64immSExt32:$imm, Cond, bb:$BrDst)]> {
-  bits<4> op;
-  bits<1> CeespuSrc;
-  bits<4> dst;
-  bits<16> BrDst;
-  bits<32> imm;
-
-  let Inst{63-60} = op;
-  let Inst{59} = CeespuSrc;
-  let Inst{51-48} = dst;
-  let Inst{47-32} = BrDst;
-  let Inst{31-0} = imm;
-
-  let op = Opc;
-  let CeespuSrc = 0;
-  let CeespuClass = 5; // Ceespu_JMP
-}
-*/
-multiclass J<bits<6> Opc, string OpcodeStr, PatLeaf Cond> {
-  def _rr : JMP_RR<Opc, OpcodeStr, Cond>;
-  //def _ri : JMP_RI<Opc, OpcodeStr, Cond>;
+class BRANCH_COND<CeespuOpcode opc, string opcstr, PatLeaf Cond>
+    : CeespuB1<opc, (outs), (ins GPR:$rd, GPR:$ra, brtarget:$imm),
+              opcstr, "$ra, $rb, $imm",
+              [(Ceespubrcc i32:$ra, i32:$rb, Cond, brtarget:$imm)]> {
 }
 
-let isBranch = 1, isTerminator = 1, hasDelaySlot=0 in {
-// branch instructions
-defm JEQ  : J<0x1, "beq",  Ceespu_CC_EQ>;
-defm JUGT : J<0x2, "bgu", Ceespu_CC_GTU>;
-defm JUGE : J<0x3, "bgeu", Ceespu_CC_GEU>;
-defm JNE  : J<0x5, "bne",  Ceespu_CC_NE>;
-defm JSGT : J<0x6, "bg", Ceespu_CC_GT>;
-defm JSGE : J<0x7, "bge", Ceespu_CC_GE>;
-}
-
-// ALU instructions
-class ALU_RI<bits<6> Opc, string OpcodeStr, SDNode OpNode>
-    : InstCeespu<(outs GPR:$dst), (ins GPR:$src2, i32imm:$imm),
-              !strconcat(OpcodeStr, "i $dst, $src2, $imm"),
-              [(set GPR:$dst, (OpNode GPR:$src2, imm:$imm))]> {
-  bits<6> Opc;
-  bits<5> dst;
-  bits<5> src;
-  bits<16> imm;
-  let Inst{31-26} = Opc;
-  let Inst{25-21} = dst;
-  let Inst{20-16} = src;
-  let Inst{15-0}  = imm;
-}
-
-class ALU_RR<bits<6> Opc, string OpcodeStr, SDNode OpNode>
-    : InstCeespu<(outs GPR:$dst), (ins GPR:$src2, GPR:$src),
-              !strconcat(OpcodeStr, " $dst, $src, $src2"),
-              [(set GPR:$dst, (OpNode i32:$src2, i32:$src))]> {
-  bits<6> op;
-  bits<5> dst;
-  bits<5> src;
-  bits<5> src2;
-
-  let Inst{31-26} = op;
-  let Inst{25-21} = dst;
-  let Inst{20-16} = src;
-  let Inst{15-11} = src2;
-
-  let op = Opc;
-}
-
-multiclass ALU<bits<6> Opc, string OpcodeStr, SDNode OpNode> {
-  def _rr : ALU_RR<Opc, OpcodeStr, OpNode>;
-  def _ri : ALU_RI<Opc, OpcodeStr, OpNode>;
-}
-
-let isAsCheapAsAMove = 1 in {
-  defm ADD : ALU<0x0, "add", add>;
-  defm ADC : ALU<0x0, "adc", adde>;
-  defm ADE : ALU<0x0, "add", addc>;
-  defm SUB : ALU<0x1, "sub", sub>;
-  defm SBB : ALU<0x1, "sub", subc>;
-  defm SBE : ALU<0x1, "sbb", sube>;
-  defm OR  : ALU<0x4, "or", or>;
-  defm AND : ALU<0x5, "and", and>;
-  defm SLL : ALU<0x6, "shl", shl>;
-  defm SRL : ALU<0x7, "shr", srl>;
-  defm XOR : ALU<0xa, "xor", xor>;
-  defm SRA : ALU<0xc, "sar", sra>;
-}
-  defm MUL : ALU<0x2, "mul", mul>;
-
-  
-def NOPAL : InstAlias<"nop", (ADD_ri R0, R0, 0)>;
-def NOT : InstAlias<"not $dst, $src", (XOR_ri GPR:$dst, GPR:$src, -1)>;
-def SEXT8 : InstCeespu<(outs GPR:$dst), (ins GPR:$src),
-              !strconcat("seb", " $dst, $src"),
-              [(set GPR:$dst, (sext_inreg GPR:$src, i8))]>;
-def SEXT16 : InstCeespu<(outs GPR:$dst), (ins GPR:$src),
-              !strconcat("seh", " $dst, $src"),
-              [(set GPR:$dst, (sext_inreg GPR:$src, i16))]>;
-
-
-class MOV_RR<string OpcodeStr>
-    : InstCeespu<(outs GPR:$dst), (ins GPR:$src),
-              !strconcat(OpcodeStr, " $dst, $src, c0"),
+class CALL
+    : CeespuB2<OPC_JMP, (outs), (ins calltarget:$imm),
+              "call", "$imm",
               []> {
-  bits<6> op;
-  bits<5> dst;
-  bits<5> src;
-
-  let Inst{31-26} = 0x0;
-  let Inst{25-21} = dst;
-  let Inst{20-16} = src;
-
-  let op = 0x0;     // Ceespu_MOV
+  let Inst{0} = 1;
 }
 
-class MOV_RI<string OpcodeStr>
-    : InstCeespu<(outs GPR:$dst), (ins i32imm:$imm),
-              !strconcat(OpcodeStr, " $dst, c0, $imm"),
-              [(set GPR:$dst, (i32 imm:$imm))]> {
-  bits<6> op;
-  bits<5> dst;
-  bits<16> imm;
-
-  let Inst{31-26} = op;
-  let Inst{25-21} = dst;
-  let Inst{15-0} = imm;
-
-  let op = 0x20; 
+class CALLR
+    : CeespuA2<OPC_JMP, (outs), (ins GPR:$ra),
+              "callr", "$ra",
+              []> {
+  let Inst{1-0} = 0b11;
 }
 
-let isReMaterializable = 1, isAsCheapAsAMove = 1 in {
-def MOV_rr : MOV_RR<"add">;
-def MOV_ri : MOV_RI<"addi">;
-}
-
-def FI_ri
-    : InstCeespu<(outs GPR:$dst), (ins MEMri:$addr),
-               "lea $dst, $addr",
-               [(set i32:$dst, FIri:$addr)]> {
-  // This is a tentative instruction, and will be replaced
-  // with MOV_rr and ADD_ri in PEI phase
-}
-
-/*
-def LD_pseudo
-    : InstCeespu<(outs GPR:$dst), (ins u32imm:$pseudo, u32imm:$imm),
-              "ld_pseudo $dst, $pseudo, $imm",
-              [(set GPR:$dst, (int_Ceespu_pseudo imm:$pseudo, imm:$imm))]> {
-
-  bits<3> mode;
-  bits<2> size;
-  bits<4> dst;
-  bits<64> imm;
-  bits<4> pseudo;
-
-  let Inst{63-61} = mode;
-  let Inst{60-59} = size;
-  let Inst{51-48} = dst;
-  let Inst{55-52} = pseudo;
-  let Inst{47-32} = 0;
-  let Inst{31-0} = imm{31-0};
-
-  let mode = 0;     // Ceespu_IMM
-  let size = 3;     // Ceespu_DW
-  let CeespuClass = 0; // Ceespu_LD
-}
-*/
-// STORE instructions
-class STORE<bits<6> op, string OpcodeStr, list<dag> Pattern>
-    : InstCeespu<(outs), (ins GPR:$src, MEMri:$addr),
-              !strconcat(OpcodeStr, " $src, $addr"), Pattern> {
-  bits<6> op;
-  bits<5> src;
-  bits<21> addr;
-
-  let Inst{31-26} = op;
-  let Inst{25-21} = src;
-  let Inst{20-0} = addr{20-0}; // base reg offset
-}
-
-class STOREi32<bits<6> Opc, string OpcodeStr, PatFrag OpNode>
-    : STORE<Opc, OpcodeStr, [(OpNode i32:$src, ADDRri:$addr)]>;
-
-def STH : STOREi32<0x1, "sh", truncstorei16>;
-def STB : STOREi32<0x2, "sb", truncstorei8>;
-def STW : STOREi32<0x3, "sw", store>;
-
-// LOAD instructions
-class LOAD<bits<6> op, string OpcodeStr, list<dag> Pattern>
-    : InstCeespu<(outs GPR:$dst), (ins MEMri:$addr),
-              !strconcat(OpcodeStr, " $dst, $addr"), Pattern> {
-  bits<6> op;
-  bits<5> dst;
-  bits<21> addr;
-
-  let Inst{31-26} = op;
-  let Inst{25-21} = dst;
-  let Inst{20-0} = addr{20-0}; // base reg offset
-}
-
-class LOADi32<bits<6> Opc, string OpcodeStr, PatFrag OpNode>
-    : LOAD<Opc, OpcodeStr, [(set i32:$dst, (OpNode ADDRri:$addr))]>;
-
-def LDW : LOADi32<0x0, "lw", load>;
-def LDH : LOADi32<0x1, "lh", sextloadi16>;
-def LDHU: LOADi32<0x4, "lhu",zextloadi16>;
-def LDB : LOADi32<0x2, "lb", sextloadi8>;
-def LDBU: LOADi32<0x3, "lbu",zextloadi8>;
-
-class BRANCH<bits<6> Opc, string OpcodeStr, list<dag> Pattern>
-    : InstCeespu<(outs), (ins brtarget:$BrDst),
-              !strconcat(OpcodeStr, " $BrDst"), Pattern> {
-  bits<6> op;
-  bits<16> BrDst;
-
-  let Inst{31-26} = op;
-  let Inst{15-0}  = BrDst;
-
-  let op = Opc;
+class BRANCHR
+    : CeespuA2<OPC_JMP, (outs), (ins GPR:$ra),
+              "bx", "$ra",
+              []> {
+  let Inst{1} = 1;
 }
 
 
-class CALL<string OpcodeStr>
-    : InstCeespu<(outs), (ins calltarget:$BrDst),
-              !strconcat(OpcodeStr, " $BrDst"), []> {
-  bits<16> BrDst;
-  let Inst{31-26} = 0x3c;
-  let Inst{15-0}  = BrDst;
-
-}
-
-class CALLR<string OpcodeStr>
-    : InstCeespu<(outs), (ins GPR:$dst),
-              !strconcat(OpcodeStr, " $dst"), [(Ceespucall GPR:$dst)]> {
-  bits<5> dst;
-  let Inst{31-26} = 0x3c;
-  let Inst{20-16} = dst;
-
+let isBranch = 1, isTerminator= 1, hasDelaySlot=0 in {
+// branch instructions
+def BEQ  : BRANCH_COND<OPC_BEQ,  "beq",  Ceespu_CC_EQ>;
+def BGU  : BRANCH_COND<OPC_BGU,  "bgu", Ceespu_CC_GTU>;
+def BGEU : BRANCH_COND<OPC_BGEU, "bgeu", Ceespu_CC_GEU>;
+def BNE  : BRANCH_COND<OPC_BNE,  "bne",  Ceespu_CC_NE>;
+def BGT  : BRANCH_COND<OPC_BG,   "bg", Ceespu_CC_GT>;
+def BGE  : BRANCH_COND<OPC_BGE,  "bge", Ceespu_CC_GE>;
 }
 
 // Jump always
 let isBranch = 1, isTerminator = 1, hasDelaySlot=0, isBarrier = 1 in {
-  def JMP : BRANCH<0x3c, "b", [(br bb:$BrDst)]>;
+  def JMP : CeespuB2<OPC_JMP, (outs), (ins brtarget), "b", "$imm" , [(br brtarget:$imm)]>;
 }
 
 // Jump and link
-let isCall=1, hasDelaySlot=0, Defs = [LR, R20, R21, R22, R23, R24, R25, R13, R14, R15, R16, R26, R27, R28, R29, R30, R31] in {
-  def JAL  : CALL<"call">;
-  def JALR : CALLR<"call">;
+let isCall=1, hasDelaySlot=0, Defs = [FP, LR, R20, R21, R22, R23, R24, R25, R13, R14, R15, R26, R27, R28, R29, R30, R31] in {
+  def JAL  : CALL;
+  def JALR : CALLR;
 }
 
-class NOP_I<string OpcodeStr>
-    : InstCeespu<(outs), (ins u32imm:$imm),
-              !strconcat(OpcodeStr, " $imm"), []> {
-  // mov r0, r0 == nop
-  bits<6> op;
+// ALU instructions
+class ALU_RI<CeespuOpcode opc, string opcstr, SDNode OpNode>
+    : CeespuB0<opc, (outs GPR:$rd), (ins GPR:$ra, i32immSExt16:$imm),
+              opcstr, "$rd, $ra, $imm",
+              [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
+}
+
+class ALU_RR<CeespuOpcode opc, string opcstr, SDNode OpNode>
+    : CeespuA0<opc, (outs GPR:$rd), (ins GPR:$rb, GPR:$ra),
+              opcstr, "$rd, $ra, $rb",
+              [(set GPR:$rd, (OpNode i32:$rb, i32:$ra))]> {
+
+}
+
+class SHIFT_RI<bits<2> shfopc, string opcstr, SDNode OpNode>
+    : InstCeespu <OPC_SHF, (outs GPR:$rd), (ins GPR:$ra, u5imm:$imm),opcstr, "$rd, $ra, $imm", [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
   
-  bits<5> dst;
-  bits<5> src;
-
-  let Inst{31-26} = op;
-
-  let op = 0x3c;     // Ceespu_MOV
-  let src = 0;      // R0
-  let dst = 0;      // R0
+  bits<5> rd;
+  bits<5> ra;
+  bits<5> imm;
+  
+  let Inst{25-21} = rd;
+  let Inst{20-16} = ra;
+  let Inst{7-6}  = shfopc;
+  let Inst{4-0}  = imm;
 }
 
-let hasSideEffects = 0 in {
-  def NOP : NOP_I<"nop">;
-}
-class RET<string OpcodeStr>
-    : InstCeespu<(outs), (ins),
-              !strconcat(OpcodeStr, ""), [(Ceespuretflag)]> {
-  bits<6> op;
-
-  let Inst{31-26} = op;
-
-  let op = 9;      
+class SHIFT_RR<bits<2> shfopc, string opcstr, SDNode OpNode>
+    : CeespuA0<OPC_SHF, (outs GPR:$rd), (ins GPR:$rb, GPR:$ra),
+              opcstr, "$rd, $ra, $rb",
+              [(set GPR:$rd, (OpNode i32:$rb, i32:$ra))]> {
+  let Inst{7-6} = shfopc;
 }
 
-let isReturn = 1, isTerminator = 1, hasDelaySlot=0, isBarrier = 1, Uses = [LR], 
-    isNotDuplicable = 1 in {
-  def RET : RET<"bx clr">;
+
+
+let isAsCheapAsAMove = 1 in {
+  def ADD : ALU_RR<OPC_ADD, "add", add>;
+  def ADC : ALU_RR<OPC_ADC, "adc", adde>;
+  def ADE : ALU_RR<OPC_ADD, "add", addc>;
+  def SUB : ALU_RR<OPC_SUB, "sub", sub>;
+  def SBB : ALU_RR<OPC_SUB, "sub", subc>;
+  def SBE : ALU_RR<OPC_SUB, "sbb", sube>;
+  def OR  : ALU_RR<OPC_OR , "or",  or>;
+  def AND : ALU_RR<OPC_AND, "and", and>;
+  def XOR : ALU_RR<OPC_XOR, "xor", xor>;
+  def SHL : SHIFT_RR<0b00,  "shl", shl>; 
+  def SHR : SHIFT_RR<0b01,  "shr", srl>; 
+  def SAR : SHIFT_RR<0b10,  "sar", sra>; 
 }
+  def MUL : ALU_RR<OPC_MUL, "mul", mul>;
+
+let isAsCheapAsAMove = 1 in {
+  def ADDI : ALU_RI<OPC_ADD, "addi", add>;
+  def ADCI : ALU_RI<OPC_ADC, "adci", adde>;
+  def ADEI : ALU_RI<OPC_ADD, "addi", addc>;
+  def SUBI : ALU_RI<OPC_SUB, "subi", sub>;
+  def SBBI : ALU_RI<OPC_SUB, "subi", subc>;
+  def SBEI : ALU_RI<OPC_SUB, "sbbi", sube>;
+  def ORI  : ALU_RI<OPC_OR , "ori",  or>;
+  def ANDI : ALU_RI<OPC_AND, "andi", and>;
+  def XORI : ALU_RI<OPC_XOR, "xori", xor>;
+  def SHLI : SHIFT_RI<0b00,  "shli", shl>;  
+  def SHRI : SHIFT_RI<0b01,  "shri", srl>; 
+  def SARI : SHIFT_RI<0b10,  "sari", sra>; 
+}
+  def MULI : ALU_RI<OPC_MUL, "muli", mul>;
+
+
+def MOV : InstAlias<"mov $rd, $ra", (ADDI GPR:$rd, GPR:$ra, 0)>;
+def NOP : InstAlias<"nop", (ADD R1, R1, R0)>;
+def NOT : InstAlias<"not $rd, $ra", (XOR GPR:$rd, GPR:$ra, -1)>;
+def SEXT8 : CeespuA2<OPC_SE, (outs GPR:$rd), (ins GPR:$ra),
+              "seb", "$rd, $ra",
+              [(set GPR:$rd, (sext_inreg GPR:$ra, i8))]>;
+def SEXT16 : CeespuA2<OPC_SE, (outs GPR:$rd), (ins GPR:$ra),
+             "seh", "$rd, $ra",
+              [(set GPR:$rd, (sext_inreg GPR:$ra, i16))]>{
+                let Inst{0} = 1; 
+              }
+def SETHI : CeespuB2<OPC_SETHI, (outs), (ins i16imm:$imm), "sethi", "$imm", []>;
+
+def FI_ri
+    : Pseudo<(outs GPR:$rd), (ins MEMri:$addr),
+               "lea", "$rd, $addr",
+               [(set i32:$rd, FIri:$addr)]> {
+  // This is a tentative instruction, and will be replaced
+  // with MOV_rr and ADD_ri in PEI phase
+}
+
+// STORE instructions
+class STORE<CeespuOpcode opc, string opcstr, PatFrag OpNode>
+    : CeespuB2<opc, (outs), (ins GPR:$ra, ADDR:$addr),
+             opcstr ,"$ra, $addr", [(OpNode GPR:$ra, ADDR:$addr)]>;
+
+
+def SH : STORE<OPC_SH, "sh", truncstorei16>;
+def SB : STORE<OPC_SB, "sb", truncstorei8>;
+def SW : STORE<OPC_SW, "sw", store>;
+
+// LOAD instructions
+class LOAD<CeespuOpcode opc, string opcstr, PatFrag OpNode>
+    : CeespuB1<opc, (outs GPR:$rd), (ins MEMri:$addr),
+              opcstr, "$rd, $addr", [(set i32:$rd, (OpNode ADDR:$addr))]>; 
+
+
+def LW : LOAD<OPC_LW,  "lw", load>;
+def LH : LOAD<OPC_LH,  "lh", sextloadi16>;
+def LHU: LOAD<OPC_LHU, "lhu",zextloadi16>;
+def LB : LOAD<OPC_LB,  "lb", sextloadi8>;
+def LBU: LOAD<OPC_LBU, "lbu",zextloadi8>;
 
 // ADJCALLSTACKDOWN/UP pseudo insns
 let Defs = [SP], Uses = [SP, LR] in {
 def ADJCALLSTACKDOWN : Pseudo<(outs), (ins u32imm:$amt1, u32imm:$amt2),
-                              "#ADJCALLSTACKDOWN $amt1 $amt2",
+                              "#ADJCALLSTACKDOWN", "$amt1 $amt2",
                               [(Ceespucallseq_start timm:$amt1, timm:$amt2)]>;
 def ADJCALLSTACKUP   : Pseudo<(outs), (ins u32imm:$amt1, u32imm:$amt2),
-                              "#ADJCALLSTACKUP $amt1 $amt2",
+                              "#ADJCALLSTACKUP", "$amt1 $amt2",
                               [(Ceespucallseq_end timm:$amt1, timm:$amt2)]>;
 }
 
 
 let usesCustomInserter = 1 in {
-  def Select : Pseudo<(outs GPR:$dst),
-                      (ins GPR:$lhs, GPR:$rhs, i32imm:$imm, GPR:$src, GPR:$src2),
-                      "# Select PSEUDO $dst = $lhs $imm $rhs ? $src : $src2",
-                      [(set i32:$dst,
-                       (Ceespuselectcc i32:$lhs, i32:$rhs, (i32 imm:$imm), i32:$src, i32:$src2))]>;
+  def Select : Pseudo<(outs GPR:$rd),
+                      (ins GPR:$lhs, GPR:$rhs, i32imm:$imm, GPR:$ra, GPR:$rb),
+                      "# Select PSEUDO", "$rd = $lhs $imm $rhs ? $ra : $rb",
+                      [(set i32:$rd,
+                       (Ceespuselectcc i32:$lhs, i32:$rhs, (i32 imm:$imm), i32:$ra, i32:$rb))]>;
 }
 
 // load global addr into register
-def : Pat<(CeespuWrapper tglobaladdr:$in), (MOV_ri tglobaladdr:$in)>;
+//def : Pat<(CeespuWrapper tglobaladdr:$in), (MOV_ri tglobaladdr:$in)>;
 
-// 
+// Zero immidiate
 def : Pat<(i32 0), (i32 R0)>;
-def : Pat<(not GPR:$dst),
- (XOR_ri GPR:$dst, -1)>;
+
+// Arbitrary immediates
+def : Pat<(i32 imm:$imm), (SETHI (HI16 imm:$imm),(LO16 imm:$imm))>;
+
+//define not as xor with all zeros
+def : Pat<(not GPR:$rd),
+ (XORI GPR:$rd, -1)>;
 
 // 0xffff doesn't fit into simm16, optimize common case
-def : Pat<(i32 (and (i32 GPR:$src), 0xffff)),
-          (SRL_ri (SLL_ri (i32 GPR:$src), 16), 16)>;
+def : Pat<(i32 (and (i32 GPR:$ra), 0xffff)),
+          (SHRI (SHLI (i32 GPR:$ra), 16), 16)>;
 
 // Calls
-def : Pat<(Ceespucall tglobaladdr:$dst), (JAL tglobaladdr:$dst)>;
-//def : Pat<(Ceespucall imm:$dst), (JAL imm:$dst)>;
+def : Pat<(Ceespucall tglobaladdr:$rd), (JAL tglobaladdr:$rd)>;
+//def : Pat<(Ceespucall imm:$rd), (JAL imm:$rd)>;
 
 // Loads
-def : Pat<(extloadi8  tglobaladdr:$src), (i32 (LDB ADDRri:$src))>;
-def : Pat<(extloadi16 tglobaladdr:$src), (i32 (LDH ADDRri:$src))>;
-def : Pat<(extloadi32 tglobaladdr:$src), (i32 (LDW ADDRri:$src))>;
+def : Pat<(extloadi8  tglobaladdr:$ra), (i32 (LB ADDR:$ra))>;
+def : Pat<(extloadi16 tglobaladdr:$ra), (i32 (LH ADDR:$ra))>;
+def : Pat<(extloadi32 tglobaladdr:$ra), (i32 (LW ADDR:$ra))>;
 
-def : Pat<(extloadi8  ADDRri:$src), (i32 (LDB ADDRri:$src))>;
-def : Pat<(extloadi16 ADDRri:$src), (i32 (LDH ADDRri:$src))>;
-def : Pat<(extloadi32 ADDRri:$src), (i32 (LDW ADDRri:$src))>;
+def : Pat<(extloadi8  ADDR:$ra), (i32 (LB ADDR:$ra))>;
+def : Pat<(extloadi16 ADDR:$ra), (i32 (LH ADDR:$ra))>;
+def : Pat<(extloadi32 ADDR:$ra), (i32 (LW ADDR:$ra))>;

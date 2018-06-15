@@ -54,9 +54,9 @@ class Triple {
     avr,         // AVR: Atmel AVR microcontroller
     bpfel,       // eBPF or extended BPF or 64-bit BPF (little endian)
     bpfeb,       // eBPF or extended BPF or 64-bit BPF (big endian)eese
-    Ceespu,      // Ceespu
-    Ceespuel,    // Ceespu (little endian)
-    Ceespueb,    // Ceespu (big endian)
+    ceespu,      // Ceespu
+    ceespuel,    // ceespu (little endian)
+    ceespueb,    // Ceespu (big endian)
     hexagon,     // Hexagon: hexagon
     mips,        // MIPS: mips, mipsallegrex
     mipsel,      // MIPSEL: mipsel, mipsallegrexel
