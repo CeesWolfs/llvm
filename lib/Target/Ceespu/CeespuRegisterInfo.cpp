@@ -28,7 +28,7 @@
 using namespace llvm;
 
 CeespuRegisterInfo::CeespuRegisterInfo(unsigned HwMode)
-    : CeespuGenRegisterInfo(Ceespu::X1, /*DwarfFlavour*/0, /*EHFlavor*/0,
+    : CeespuGenRegisterInfo(Ceespu::R1, /*DwarfFlavour*/0, /*EHFlavor*/0,
                            /*PC*/0, HwMode) {}
 
 const MCPhysReg *

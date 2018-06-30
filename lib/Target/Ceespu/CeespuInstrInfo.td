@@ -153,10 +153,16 @@ class ALU_RI<CeespuOpcode opc, string opcstr, SDNode OpNode>
               [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
 }
 
+// Extended immidiate ALU instructions
+class ALU_RI_EXT<CeespuOpcode opc, string opcstr, SDNode OpNode>
+    : InstCeespuExt<opc, (outs GPR:$rd), (ins GPR:$ra, i32:$imm),
+              opcstr, [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
+}
+
 class ALU_RR<CeespuOpcode opc, string opcstr, SDNode OpNode>
     : CeespuA0<opc, (outs GPR:$rd), (ins GPR:$rb, GPR:$ra),
               opcstr, "$rd, $ra, $rb",
-              [(set GPR:$rd, (OpNode i32:$rb, i32:$ra))]> {
+              [(set GPR:$rd, (OpNode GPR:$rb, GPR:$ra))]> {
 
 }
 
@@ -226,7 +232,7 @@ def SEXT16 : CeespuA2<OPC_SE, (outs GPR:$rd), (ins GPR:$ra),
               [(set GPR:$rd, (sext_inreg GPR:$ra, i16))]>{
                 let Inst{0} = 1; 
               }
-def SETHI : CeespuB2<OPC_SETHI, (outs), (ins i16imm:$imm), "sethi", "$imm", []>;
+def SETHI : CeespuB2<OPC_SETI, (outs), (ins i16imm:$imm), "seti", "$imm", []>;
 
 def FI_ri
     : Pseudo<(outs GPR:$rd), (ins MEMri:$addr),
@@ -289,7 +295,7 @@ def : Pat<(i32 imm:$imm), (ORI (SETHI (HI16 imm:$imm)),(LO16 imm:$imm))>;
 
 //define not as xor with all zeros
 def : Pat<(not GPR:$rd),
- (XORI GPR:$rd, -1)>;
+ (XORI GPR:$rd, GPR:$rd, -1)>;
 
 // 0xffff doesn't fit into simm16, optimize common case
 def : Pat<(i32 (and (i32 GPR:$ra), 0xffff)),

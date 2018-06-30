@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 class CeespuReg<bits<5> Enc, string n> : Register<n> {
-  let HWEncoding = Enc;
+  let HWEncoding{4-0}  = Enc;
   let Namespace = "Ceespu";
 }
 
