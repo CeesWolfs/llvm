@@ -1,4 +1,5 @@
-//===-- CeespuISelLowering.h - Ceespu DAG Lowering Interface ------*- C++ -*-===//
+//===-- CeespuISelLowering.h - Ceespu DAG Lowering Interface ------*- C++
+//-*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -27,8 +28,7 @@ enum NodeType : unsigned {
   RET_FLAG,
   CALL,
   SELECT_CC,
-  BuildPairF64,
-  SplitF64,
+  Wrapper,
   TAIL
 };
 }
@@ -36,9 +36,9 @@ enum NodeType : unsigned {
 class CeespuTargetLowering : public TargetLowering {
   const CeespuSubtarget &Subtarget;
 
-public:
+ public:
   explicit CeespuTargetLowering(const TargetMachine &TM,
-                               const CeespuSubtarget &STI);
+                                const CeespuSubtarget &STI);
 
   bool isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM, Type *Ty,
                              unsigned AS,
@@ -55,18 +55,17 @@ public:
   // This method returns the name of a target specific DAG node.
   const char *getTargetNodeName(unsigned Opcode) const override;
 
-  std::pair<unsigned, const TargetRegisterClass *>
-  getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                               StringRef Constraint, MVT VT) const override;
+  std::pair<unsigned, const TargetRegisterClass *> getRegForInlineAsmConstraint(
+      const TargetRegisterInfo *TRI, StringRef Constraint,
+      MVT VT) const override;
 
-  MachineBasicBlock *
-  EmitInstrWithCustomInserter(MachineInstr &MI,
-                              MachineBasicBlock *BB) const override;
+  MachineBasicBlock *EmitInstrWithCustomInserter(
+      MachineInstr &MI, MachineBasicBlock *BB) const override;
 
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
                          EVT VT) const override;
 
-private:
+ private:
   void analyzeInputArgs(MachineFunction &MF, CCState &CCInfo,
                         const SmallVectorImpl<ISD::InputArg> &Ins,
                         bool IsRet) const;
@@ -102,10 +101,10 @@ private:
   SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
 
-  bool IsEligibleForTailCallOptimization(CCState &CCInfo,
-    CallLoweringInfo &CLI, MachineFunction &MF,
-    const SmallVector<CCValAssign, 16> &ArgLocs) const;
+  bool IsEligibleForTailCallOptimization(
+      CCState &CCInfo, CallLoweringInfo &CLI, MachineFunction &MF,
+      const SmallVector<CCValAssign, 16> &ArgLocs) const;
 };
-}
+}  // namespace llvm
 
 #endif

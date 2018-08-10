@@ -1,4 +1,5 @@
-//===-- CeespuTargetMachine.cpp - Define TargetMachine for Ceespu -----------===//
+//===-- CeespuTargetMachine.cpp - Define TargetMachine for Ceespu
+//-----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Ceespu.h"
 #include "CeespuTargetMachine.h"
+#include "Ceespu.h"
 #include "CeespuTargetObjectFile.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/Passes.h"
@@ -25,38 +26,34 @@
 using namespace llvm;
 
 extern "C" void LLVMInitializeCeespuTarget() {
-  RegisterTargetMachine<CeespuTargetMachine> X(getTheCeespu32Target());
-  RegisterTargetMachine<CeespuTargetMachine> Y(getTheCeespu64Target());
+  RegisterTargetMachine<CeespuTargetMachine> X(getTheCeespuTarget());
+  RegisterTargetMachine<CeespuTargetMachine> Y(getTheCeespuebTarget());
 }
 
 static std::string computeDataLayout(const Triple &TT) {
-  if (TT.isArch64Bit()) {
-    return "e-m:e-p:64:64-i64:64-i128:128-n64-S128";
-  } else {
-    assert(TT.isArch32Bit() && "only RV32 and RV64 are currently supported");
-    return "e-m:e-p:32:32-i64:64-n32-S128";
+  if (TT == getTheCeespuebTarget()) {
+    return "E-m:E-p:16:16:32-i32:32-n32-S32";
   }
+  return "e-m:e-p:16:16:32-i32:32-n32-S32";
 }
 
 static Reloc::Model getEffectiveRelocModel(const Triple &TT,
                                            Optional<Reloc::Model> RM) {
-  if (!RM.hasValue())
-    return Reloc::Static;
+  if (!RM.hasValue()) return Reloc::Static;
   return *RM;
 }
 
 static CodeModel::Model getEffectiveCodeModel(Optional<CodeModel::Model> CM) {
-  if (CM)
-    return *CM;
+  if (CM) return *CM;
   return CodeModel::Small;
 }
 
 CeespuTargetMachine::CeespuTargetMachine(const Target &T, const Triple &TT,
-                                       StringRef CPU, StringRef FS,
-                                       const TargetOptions &Options,
-                                       Optional<Reloc::Model> RM,
-                                       Optional<CodeModel::Model> CM,
-                                       CodeGenOpt::Level OL, bool JIT)
+                                         StringRef CPU, StringRef FS,
+                                         const TargetOptions &Options,
+                                         Optional<Reloc::Model> RM,
+                                         Optional<CodeModel::Model> CM,
+                                         CodeGenOpt::Level OL, bool JIT)
     : LLVMTargetMachine(T, computeDataLayout(TT), TT, CPU, FS, Options,
                         getEffectiveRelocModel(TT, RM),
                         getEffectiveCodeModel(CM), OL),
@@ -67,7 +64,7 @@ CeespuTargetMachine::CeespuTargetMachine(const Target &T, const Triple &TT,
 
 namespace {
 class CeespuPassConfig : public TargetPassConfig {
-public:
+ public:
   CeespuPassConfig(CeespuTargetMachine &TM, PassManagerBase &PM)
       : TargetPassConfig(TM, PM) {}
 
@@ -78,7 +75,7 @@ public:
   bool addInstSelector() override;
   void addPreEmitPass() override;
 };
-}
+}  // namespace
 
 TargetPassConfig *CeespuTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new CeespuPassConfig(*this, PM);

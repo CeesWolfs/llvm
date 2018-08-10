@@ -1,4 +1,5 @@
-//===-- CeespuISelLowering.cpp - Ceespu DAG Lowering Implementation  --------===//
+//===-- CeespuISelLowering.cpp - Ceespu DAG Lowering Implementation
+//--------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -40,23 +41,17 @@ using namespace llvm;
 STATISTIC(NumTailCalls, "Number of tail calls");
 
 CeespuTargetLowering::CeespuTargetLowering(const TargetMachine &TM,
-                                         const CeespuSubtarget &STI)
+                                           const CeespuSubtarget &STI)
     : TargetLowering(TM), Subtarget(STI) {
-
-  MVT XLenVT = Subtarget.getXLenVT();
+  MVT XLenVT = MVT::i32;
 
   // Set up the register classes.
   addRegisterClass(XLenVT, &Ceespu::GPRRegClass);
 
-  if (Subtarget.hasStdExtF())
-    addRegisterClass(MVT::f32, &Ceespu::FPR32RegClass);
-  if (Subtarget.hasStdExtD())
-    addRegisterClass(MVT::f64, &Ceespu::FPR64RegClass);
-
   // Compute derived properties from the register classes.
   computeRegisterProperties(STI.getRegisterInfo());
 
-  setStackPointerRegisterToSaveRestore(Ceespu::X2);
+  setStackPointerRegisterToSaveRestore(Ceespu::SP);
 
   for (auto N : {ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD})
     setLoadExtAction(N, XLenVT, MVT::i1, Promote);
@@ -77,19 +72,12 @@ CeespuTargetLowering::CeespuTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
   setOperationAction(ISD::VAEND, MVT::Other, Expand);
 
-  for (auto VT : {MVT::i1, MVT::i8, MVT::i16})
-    setOperationAction(ISD::SIGN_EXTEND_INREG, VT, Expand);
-
-  if (!Subtarget.hasStdExtM()) {
-    setOperationAction(ISD::MUL, XLenVT, Expand);
-    setOperationAction(ISD::MULHS, XLenVT, Expand);
-    setOperationAction(ISD::MULHU, XLenVT, Expand);
-    setOperationAction(ISD::SDIV, XLenVT, Expand);
-    setOperationAction(ISD::UDIV, XLenVT, Expand);
-    setOperationAction(ISD::SREM, XLenVT, Expand);
-    setOperationAction(ISD::UREM, XLenVT, Expand);
-  }
-
+  setOperationAction(ISD::MULHS, XLenVT, Expand);
+  setOperationAction(ISD::MULHU, XLenVT, Expand);
+  setOperationAction(ISD::SDIV, XLenVT, Expand);
+  setOperationAction(ISD::UDIV, XLenVT, Expand);
+  setOperationAction(ISD::SREM, XLenVT, Expand);
+  setOperationAction(ISD::UREM, XLenVT, Expand);
   setOperationAction(ISD::SDIVREM, XLenVT, Expand);
   setOperationAction(ISD::UDIVREM, XLenVT, Expand);
   setOperationAction(ISD::SMUL_LOHI, XLenVT, Expand);
@@ -111,71 +99,46 @@ CeespuTargetLowering::CeespuTargetLowering(const TargetMachine &TM,
       ISD::SETUGT, ISD::SETUGE, ISD::SETULT, ISD::SETULE, ISD::SETUNE,
       ISD::SETGT,  ISD::SETGE,  ISD::SETNE};
 
-  if (Subtarget.hasStdExtF()) {
-    setOperationAction(ISD::FMINNUM, MVT::f32, Legal);
-    setOperationAction(ISD::FMAXNUM, MVT::f32, Legal);
-    for (auto CC : FPCCToExtend)
-      setCondCodeAction(CC, MVT::f32, Expand);
-    setOperationAction(ISD::SELECT_CC, MVT::f32, Expand);
-    setOperationAction(ISD::SELECT, MVT::f32, Custom);
-    setOperationAction(ISD::BR_CC, MVT::f32, Expand);
-  }
-
-  if (Subtarget.hasStdExtD()) {
-    setOperationAction(ISD::FMINNUM, MVT::f64, Legal);
-    setOperationAction(ISD::FMAXNUM, MVT::f64, Legal);
-    for (auto CC : FPCCToExtend)
-      setCondCodeAction(CC, MVT::f64, Expand);
-    setOperationAction(ISD::SELECT_CC, MVT::f64, Expand);
-    setOperationAction(ISD::SELECT, MVT::f64, Custom);
-    setOperationAction(ISD::BR_CC, MVT::f64, Expand);
-    setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
-    setTruncStoreAction(MVT::f64, MVT::f32, Expand);
-  }
-
-  setOperationAction(ISD::GlobalAddress, XLenVT, Custom);
-  setOperationAction(ISD::BlockAddress, XLenVT, Custom);
-  setOperationAction(ISD::ConstantPool, XLenVT, Custom);
+  setOperationAction(ISD::GlobalAddress, MVT::i16, Custom);
+  // setOperationAction(ISD::BlockAddress, XLenVT, Custom);
+  // setOperationAction(ISD::ConstantPool, XLenVT, Custom);
 
   setBooleanContents(ZeroOrOneBooleanContent);
 
   // Function alignments (log2).
-  unsigned FunctionAlignment = Subtarget.hasStdExtC() ? 1 : 2;
+  unsigned FunctionAlignment = 2;
   setMinFunctionAlignment(FunctionAlignment);
   setPrefFunctionAlignment(FunctionAlignment);
 
   // Effectively disable jump table generation.
-  setMinimumJumpTableEntries(INT_MAX);
+  // setMinimumJumpTableEntries(INT_MAX);
 }
 
-EVT CeespuTargetLowering::getSetCCResultType(const DataLayout &DL, LLVMContext &,
-                                            EVT VT) const {
-  if (!VT.isVector())
-    return getPointerTy(DL);
+EVT CeespuTargetLowering::getSetCCResultType(const DataLayout &DL,
+                                             LLVMContext &, EVT VT) const {
+  if (!VT.isVector()) return getPointerTy(DL);
   return VT.changeVectorElementTypeToInteger();
 }
 
 bool CeespuTargetLowering::isLegalAddressingMode(const DataLayout &DL,
-                                                const AddrMode &AM, Type *Ty,
-                                                unsigned AS,
-                                                Instruction *I) const {
+                                                 const AddrMode &AM, Type *Ty,
+                                                 unsigned AS,
+                                                 Instruction *I) const {
   // No global is ever allowed as a base.
-  if (AM.BaseGV)
-    return false;
+  // if (AM.BaseGV) return false;
 
-  // Require a 12-bit signed offset.
-  if (!isInt<12>(AM.BaseOffs))
-    return false;
+  // Require a 16-bit signed offset.
+  if (!isInt<16>(AM.BaseOffs)) return false;
 
   switch (AM.Scale) {
-  case 0: // "r+i" or just "i", depending on HasBaseReg.
-    break;
-  case 1:
-    if (!AM.HasBaseReg) // allow "r+i".
+    case 0:  // "r+i" or just "i", depending on HasBaseReg.
       break;
-    return false; // disallow "r+r" or "r+r+i".
-  default:
-    return false;
+    case 1:
+      if (!AM.HasBaseReg)  // allow "r+i".
+        break;
+      return false;  // disallow "r+r" or "r+r+i".
+    default:
+      return false;
   }
 
   return true;
@@ -186,7 +149,7 @@ bool CeespuTargetLowering::isLegalICmpImmediate(int64_t Imm) const {
 }
 
 bool CeespuTargetLowering::isLegalAddImmediate(int64_t Imm) const {
-  return isInt<12>(Imm);
+  return isInt<16>(Imm);
 }
 
 // On RV32, 64-bit integers are split into their high and low parts and held
@@ -228,15 +191,15 @@ bool CeespuTargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
 // ISA.
 static void normaliseSetCC(SDValue &LHS, SDValue &RHS, ISD::CondCode &CC) {
   switch (CC) {
-  default:
-    break;
-  case ISD::SETGT:
-  case ISD::SETLE:
-  case ISD::SETUGT:
-  case ISD::SETULE:
-    CC = ISD::getSetCCSwappedOperands(CC);
-    std::swap(LHS, RHS);
-    break;
+    default:
+      break;
+    case ISD::SETLT:
+    case ISD::SETLE:
+    case ISD::SETULT:
+    case ISD::SETULE:
+      CC = ISD::getSetCCSwappedOperands(CC);
+      std::swap(LHS, RHS);
+      break;
   }
 }
 
@@ -245,73 +208,72 @@ static void normaliseSetCC(SDValue &LHS, SDValue &RHS, ISD::CondCode &CC) {
 // ISA (see normaliseSetCC).
 static unsigned getBranchOpcodeForIntCondCode(ISD::CondCode CC) {
   switch (CC) {
-  default:
-    llvm_unreachable("Unsupported CondCode");
-  case ISD::SETEQ:
-    return Ceespu::BEQ;
-  case ISD::SETNE:
-    return Ceespu::BNE;
-  case ISD::SETLT:
-    return Ceespu::BLT;
-  case ISD::SETGE:
-    return Ceespu::BGE;
-  case ISD::SETULT:
-    return Ceespu::BLTU;
-  case ISD::SETUGE:
-    return Ceespu::BGEU;
+    default:
+      llvm_unreachable("Unsupported CondCode");
+    case ISD::SETEQ:
+      return Ceespu::BEQ;
+    case ISD::SETNE:
+      return Ceespu::BNE;
+    case ISD::SETGT:
+      return Ceespu::BGT;
+    case ISD::SETGE:
+      return Ceespu::BGE;
+    case ISD::SETUGT:
+      return Ceespu::BGU;
+    case ISD::SETUGE:
+      return Ceespu::BGEU;
   }
 }
 
 SDValue CeespuTargetLowering::LowerOperation(SDValue Op,
-                                            SelectionDAG &DAG) const {
+                                             SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
-  default:
-    report_fatal_error("unimplemented operand");
-  case ISD::GlobalAddress:
-    return lowerGlobalAddress(Op, DAG);
-  case ISD::BlockAddress:
-    return lowerBlockAddress(Op, DAG);
-  case ISD::ConstantPool:
-    return lowerConstantPool(Op, DAG);
-  case ISD::SELECT:
-    return lowerSELECT(Op, DAG);
-  case ISD::VASTART:
-    return lowerVASTART(Op, DAG);
-  case ISD::FRAMEADDR:
-    return LowerFRAMEADDR(Op, DAG);
-  case ISD::RETURNADDR:
-    return LowerRETURNADDR(Op, DAG);
+    default:
+      report_fatal_error("unimplemented operand");
+    case ISD::GlobalAddress:
+      return lowerGlobalAddress(Op, DAG);
+    case ISD::SELECT:
+      return lowerSELECT(Op, DAG);
+    case ISD::VASTART:
+      return lowerVASTART(Op, DAG);
+    case ISD::FRAMEADDR:
+      return LowerFRAMEADDR(Op, DAG);
+    case ISD::RETURNADDR:
+      return LowerRETURNADDR(Op, DAG);
   }
 }
 
 SDValue CeespuTargetLowering::lowerGlobalAddress(SDValue Op,
-                                                SelectionDAG &DAG) const {
+                                                 SelectionDAG &DAG) const {
   SDLoc DL(Op);
   EVT Ty = Op.getValueType();
   GlobalAddressSDNode *N = cast<GlobalAddressSDNode>(Op);
   const GlobalValue *GV = N->getGlobal();
   int64_t Offset = N->getOffset();
-  MVT XLenVT = Subtarget.getXLenVT();
+  MVT XLenVT = MVT::i32;
 
-  if (isPositionIndependent() || Subtarget.is64Bit())
-    report_fatal_error("Unable to lowerGlobalAddress");
+  // if (isPositionIndependent() || Subtarget.is64Bit())
+  // report_fatal_error("Unable to lowerGlobalAddress");
   // In order to maximise the opportunity for common subexpression elimination,
   // emit a separate ADD node for the global address offset instead of folding
   // it in the global address node. Later peephole optimisations may choose to
   // fold it back in when profitable.
-  SDValue GAHi = DAG.getTargetGlobalAddress(GV, DL, Ty, 0, CeespuII::MO_HI);
-  SDValue GALo = DAG.getTargetGlobalAddress(GV, DL, Ty, 0, CeespuII::MO_LO);
-  SDValue MNHi = SDValue(DAG.getMachineNode(Ceespu::LUI, DL, Ty, GAHi), 0);
-  SDValue MNLo =
-    SDValue(DAG.getMachineNode(Ceespu::ADDI, DL, Ty, MNHi, GALo), 0);
-  if (Offset != 0)
-    return DAG.getNode(ISD::ADD, DL, Ty, MNLo,
-                       DAG.getConstant(Offset, DL, XLenVT));
-  return MNLo;
+  // SDValue GAHi = DAG.getTargetGlobalAddress(GV, DL, Ty, 0, CeespuII::MO_HI);
+  // SDValue GALo = DAG.getTargetGlobalAddress(GV, DL, Ty, 0, CeespuII::MO_LO);
+  // SDValue MNHi = SDValue(DAG.getMachineNode(Ceespu::LUI, DL, Ty, GAHi), 0);
+  // SDValue MNLo =
+  //    SDValue(DAG.getMachineNode(Ceespu::ADDI, DL, Ty, MNHi, GALo), 0);
+  // if (Offset != 0)
+  // return DAG.getNode(ISD::ADD, DL, Ty, MNLo,
+  // DAG.getConstant(Offset, DL, XLenVT));
+  // return MNLo;
+  SDValue GA = DAG.getTargetGlobalAddress(GV, DL, MVT::i16);
+
+  return DAG.getNode(CeespuISD::Wrapper, DL, MVT::i16, GA);
 }
 
-SDValue CeespuTargetLowering::lowerBlockAddress(SDValue Op,
-                                               SelectionDAG &DAG) const {
+/*SDValue CeespuTargetLowering::lowerBlockAddress(SDValue Op,
+                                                SelectionDAG &DAG) const {
   SDLoc DL(Op);
   EVT Ty = Op.getValueType();
   BlockAddressSDNode *N = cast<BlockAddressSDNode>(Op);
@@ -325,12 +287,12 @@ SDValue CeespuTargetLowering::lowerBlockAddress(SDValue Op,
   SDValue BALo = DAG.getTargetBlockAddress(BA, Ty, Offset, CeespuII::MO_LO);
   SDValue MNHi = SDValue(DAG.getMachineNode(Ceespu::LUI, DL, Ty, BAHi), 0);
   SDValue MNLo =
-    SDValue(DAG.getMachineNode(Ceespu::ADDI, DL, Ty, MNHi, BALo), 0);
+      SDValue(DAG.getMachineNode(Ceespu::ADDI, DL, Ty, MNHi, BALo), 0);
   return MNLo;
 }
 
 SDValue CeespuTargetLowering::lowerConstantPool(SDValue Op,
-                                               SelectionDAG &DAG) const {
+                                                SelectionDAG &DAG) const {
   SDLoc DL(Op);
   EVT Ty = Op.getValueType();
   ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
@@ -353,7 +315,7 @@ SDValue CeespuTargetLowering::lowerConstantPool(SDValue Op,
 }
 
 SDValue CeespuTargetLowering::lowerExternalSymbol(SDValue Op,
-                                                 SelectionDAG &DAG) const {
+                                                  SelectionDAG &DAG) const {
   SDLoc DL(Op);
   EVT Ty = Op.getValueType();
   ExternalSymbolSDNode *N = cast<ExternalSymbolSDNode>(Op);
@@ -368,9 +330,9 @@ SDValue CeespuTargetLowering::lowerExternalSymbol(SDValue Op,
   SDValue GALo = DAG.getTargetExternalSymbol(Sym, Ty, CeespuII::MO_LO);
   SDValue MNHi = SDValue(DAG.getMachineNode(Ceespu::LUI, DL, Ty, GAHi), 0);
   SDValue MNLo =
-    SDValue(DAG.getMachineNode(Ceespu::ADDI, DL, Ty, MNHi, GALo), 0);
+      SDValue(DAG.getMachineNode(Ceespu::ADDI, DL, Ty, MNHi, GALo), 0);
   return MNLo;
-}
+}*/
 
 SDValue CeespuTargetLowering::lowerSELECT(SDValue Op, SelectionDAG &DAG) const {
   SDValue CondV = Op.getOperand(0);
@@ -412,7 +374,8 @@ SDValue CeespuTargetLowering::lowerSELECT(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getNode(CeespuISD::SELECT_CC, DL, VTs, Ops);
 }
 
-SDValue CeespuTargetLowering::lowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+SDValue CeespuTargetLowering::lowerVASTART(SDValue Op,
+                                           SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   CeespuMachineFunctionInfo *FuncInfo = MF.getInfo<CeespuMachineFunctionInfo>();
 
@@ -428,7 +391,7 @@ SDValue CeespuTargetLowering::lowerVASTART(SDValue Op, SelectionDAG &DAG) const 
 }
 
 SDValue CeespuTargetLowering::LowerFRAMEADDR(SDValue Op,
-                                            SelectionDAG &DAG) const {
+                                             SelectionDAG &DAG) const {
   const CeespuRegisterInfo &RI = *Subtarget.getRegisterInfo();
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo &MFI = MF.getFrameInfo();
@@ -451,7 +414,7 @@ SDValue CeespuTargetLowering::LowerFRAMEADDR(SDValue Op,
 }
 
 SDValue CeespuTargetLowering::LowerRETURNADDR(SDValue Op,
-                                             SelectionDAG &DAG) const {
+                                              SelectionDAG &DAG) const {
   const CeespuRegisterInfo &RI = *Subtarget.getRegisterInfo();
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo &MFI = MF.getFrameInfo();
@@ -459,8 +422,7 @@ SDValue CeespuTargetLowering::LowerRETURNADDR(SDValue Op,
   MVT XLenVT = Subtarget.getXLenVT();
   int XLenInBytes = Subtarget.getXLen() / 8;
 
-  if (verifyReturnAddressArgumentIsConstant(Op, DAG))
-    return SDValue();
+  if (verifyReturnAddressArgumentIsConstant(Op, DAG)) return SDValue();
 
   EVT VT = Op.getValueType();
   SDLoc DL(Op);
@@ -480,174 +442,227 @@ SDValue CeespuTargetLowering::LowerRETURNADDR(SDValue Op,
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, XLenVT);
 }
 
-static MachineBasicBlock *emitSplitF64Pseudo(MachineInstr &MI,
-                                             MachineBasicBlock *BB) {
-  assert(MI.getOpcode() == Ceespu::SplitF64Pseudo && "Unexpected instruction");
-
-  MachineFunction &MF = *BB->getParent();
-  DebugLoc DL = MI.getDebugLoc();
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
-  const TargetRegisterInfo *RI = MF.getSubtarget().getRegisterInfo();
-  unsigned LoReg = MI.getOperand(0).getReg();
-  unsigned HiReg = MI.getOperand(1).getReg();
-  unsigned SrcReg = MI.getOperand(2).getReg();
-  const TargetRegisterClass *SrcRC = &Ceespu::FPR64RegClass;
-  int FI = MF.getInfo<CeespuMachineFunctionInfo>()->getMoveF64FrameIndex();
-
-  TII.storeRegToStackSlot(*BB, MI, SrcReg, MI.getOperand(2).isKill(), FI, SrcRC,
-                          RI);
-  MachineMemOperand *MMO =
-      MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
-                              MachineMemOperand::MOLoad, 8, 8);
-  BuildMI(*BB, MI, DL, TII.get(Ceespu::LW), LoReg)
-      .addFrameIndex(FI)
-      .addImm(0)
-      .addMemOperand(MMO);
-  BuildMI(*BB, MI, DL, TII.get(Ceespu::LW), HiReg)
-      .addFrameIndex(FI)
-      .addImm(4)
-      .addMemOperand(MMO);
-  MI.eraseFromParent(); // The pseudo instruction is gone now.
-  return BB;
-}
-
-static MachineBasicBlock *emitBuildPairF64Pseudo(MachineInstr &MI,
-                                                 MachineBasicBlock *BB) {
-  assert(MI.getOpcode() == Ceespu::BuildPairF64Pseudo &&
-         "Unexpected instruction");
-
-  MachineFunction &MF = *BB->getParent();
-  DebugLoc DL = MI.getDebugLoc();
-  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
-  const TargetRegisterInfo *RI = MF.getSubtarget().getRegisterInfo();
-  unsigned DstReg = MI.getOperand(0).getReg();
-  unsigned LoReg = MI.getOperand(1).getReg();
-  unsigned HiReg = MI.getOperand(2).getReg();
-  const TargetRegisterClass *DstRC = &Ceespu::FPR64RegClass;
-  int FI = MF.getInfo<CeespuMachineFunctionInfo>()->getMoveF64FrameIndex();
-
-  MachineMemOperand *MMO =
-      MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
-                              MachineMemOperand::MOStore, 8, 8);
-  BuildMI(*BB, MI, DL, TII.get(Ceespu::SW))
-      .addReg(LoReg, getKillRegState(MI.getOperand(1).isKill()))
-      .addFrameIndex(FI)
-      .addImm(0)
-      .addMemOperand(MMO);
-  BuildMI(*BB, MI, DL, TII.get(Ceespu::SW))
-      .addReg(HiReg, getKillRegState(MI.getOperand(2).isKill()))
-      .addFrameIndex(FI)
-      .addImm(4)
-      .addMemOperand(MMO);
-  TII.loadRegFromStackSlot(*BB, MI, DstReg, FI, DstRC, RI);
-  MI.eraseFromParent(); // The pseudo instruction is gone now.
-  return BB;
-}
-
-MachineBasicBlock *
-CeespuTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
-                                                 MachineBasicBlock *BB) const {
-  switch (MI.getOpcode()) {
-  default:
-    llvm_unreachable("Unexpected instr type to insert");
-  case Ceespu::Select_GPR_Using_CC_GPR:
-  case Ceespu::Select_FPR32_Using_CC_GPR:
-  case Ceespu::Select_FPR64_Using_CC_GPR:
-    break;
-  case Ceespu::BuildPairF64Pseudo:
-    return emitBuildPairF64Pseudo(MI, BB);
-  case Ceespu::SplitF64Pseudo:
-    return emitSplitF64Pseudo(MI, BB);
-  }
-
-  // To "insert" a SELECT instruction, we actually have to insert the triangle
-  // control-flow pattern.  The incoming instruction knows the destination vreg
-  // to set, the condition code register to branch on, the true/false values to
-  // select between, and the condcode to use to select the appropriate branch.
-  //
-  // We produce the following control flow:
-  //     HeadMBB
-  //     |  \
-  //     |  IfFalseMBB
-  //     | /
-  //    TailMBB
+MachineBasicBlock *CeespuTargetLowering::EmitInstrWithCustomInserter(
+    MachineInstr &MI, MachineBasicBlock *BB) const {
   const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
-  const BasicBlock *LLVM_BB = BB->getBasicBlock();
   DebugLoc DL = MI.getDebugLoc();
+  DEBUG(dbgs() << "EmitInstrWithCustomInserter \n");
+  assert(MI.getOpcode() == Ceespu::Select && "Unexpected instr type to insert");
+
+  // To "insert" a SELECT instruction, we actually have to insert the diamond
+  // control-flow pattern.  The incoming instruction knows the destination
+  // vreg to set, the condition code register to branch on, the true/false
+  // values to select between, and a branch opcode to use.
+  const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction::iterator I = ++BB->getIterator();
 
-  MachineBasicBlock *HeadMBB = BB;
+  // ThisMBB:
+  // ...
+  //  TrueVal = ...
+  //  jmp_XX r1, r2 goto Copy1MBB
+  //  fallthrough --> Copy0MBB
+  MachineBasicBlock *ThisMBB = BB;
   MachineFunction *F = BB->getParent();
-  MachineBasicBlock *TailMBB = F->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *IfFalseMBB = F->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *Copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *Copy1MBB = F->CreateMachineBasicBlock(LLVM_BB);
 
-  F->insert(I, IfFalseMBB);
-  F->insert(I, TailMBB);
-  // Move all remaining instructions to TailMBB.
-  TailMBB->splice(TailMBB->begin(), HeadMBB,
-                  std::next(MachineBasicBlock::iterator(MI)), HeadMBB->end());
+  F->insert(I, Copy0MBB);
+  F->insert(I, Copy1MBB);
   // Update machine-CFG edges by transferring all successors of the current
   // block to the new block which will contain the Phi node for the select.
-  TailMBB->transferSuccessorsAndUpdatePHIs(HeadMBB);
-  // Set the successors for HeadMBB.
-  HeadMBB->addSuccessor(IfFalseMBB);
-  HeadMBB->addSuccessor(TailMBB);
+  Copy1MBB->splice(Copy1MBB->begin(), BB,
+                   std::next(MachineBasicBlock::iterator(MI)), BB->end());
+  Copy1MBB->transferSuccessorsAndUpdatePHIs(BB);
+  // Next, add the true and fallthrough blocks as its successors.
+  BB->addSuccessor(Copy0MBB);
+  BB->addSuccessor(Copy1MBB);
 
-  // Insert appropriate branch.
+  // Insert Branch if Flag
   unsigned LHS = MI.getOperand(1).getReg();
   unsigned RHS = MI.getOperand(2).getReg();
-  auto CC = static_cast<ISD::CondCode>(MI.getOperand(3).getImm());
-  unsigned Opcode = getBranchOpcodeForIntCondCode(CC);
+  int CC = MI.getOperand(3).getImm();
+  switch (CC) {
+    case ISD::SETGT:
+      BuildMI(BB, DL, TII.get(Ceespu::JSGT_rr))
+          .addReg(LHS)
+          .addReg(RHS)
+          .addMBB(Copy1MBB);
+      break;
+    case ISD::SETUGT:
+      BuildMI(BB, DL, TII.get(Ceespu::JUGT_rr))
+          .addReg(LHS)
+          .addReg(RHS)
+          .addMBB(Copy1MBB);
+      break;
+    case ISD::SETGE:
+      BuildMI(BB, DL, TII.get(Ceespu::JSGE_rr))
+          .addReg(LHS)
+          .addReg(RHS)
+          .addMBB(Copy1MBB);
+      break;
+    case ISD::SETUGE:
+      BuildMI(BB, DL, TII.get(Ceespu::JUGE_rr))
+          .addReg(LHS)
+          .addReg(RHS)
+          .addMBB(Copy1MBB);
+      break;
+    case ISD::SETEQ:
+      BuildMI(BB, DL, TII.get(Ceespu::JEQ_rr))
+          .addReg(LHS)
+          .addReg(RHS)
+          .addMBB(Copy1MBB);
+      break;
+    case ISD::SETNE:
+      BuildMI(BB, DL, TII.get(Ceespu::JNE_rr))
+          .addReg(LHS)
+          .addReg(RHS)
+          .addMBB(Copy1MBB);
+      break;
+    default:
+      report_fatal_error("unimplemented select CondCode " + Twine(CC));
+  }
 
-  BuildMI(HeadMBB, DL, TII.get(Opcode))
-    .addReg(LHS)
-    .addReg(RHS)
-    .addMBB(TailMBB);
+  // Copy0MBB:
+  //  %FalseValue = ...
+  //  # fallthrough to Copy1MBB
+  BB = Copy0MBB;
 
-  // IfFalseMBB just falls through to TailMBB.
-  IfFalseMBB->addSuccessor(TailMBB);
+  // Update machine-CFG edges
+  BB->addSuccessor(Copy1MBB);
 
-  // %Result = phi [ %TrueValue, HeadMBB ], [ %FalseValue, IfFalseMBB ]
-  BuildMI(*TailMBB, TailMBB->begin(), DL, TII.get(Ceespu::PHI),
-          MI.getOperand(0).getReg())
-      .addReg(MI.getOperand(4).getReg())
-      .addMBB(HeadMBB)
-      .addReg(MI.getOperand(5).getReg())
-      .addMBB(IfFalseMBB);
-
-  MI.eraseFromParent(); // The pseudo instruction is gone now.
-  return TailMBB;
+  // Copy1MBB:
+  //  %Result = phi [ %FalseValue, Copy0MBB ], [ %TrueValue, ThisMBB ]
+  // ...
+  BB = Copy1MBB;
+  if (MI.getOperand(0).getReg() == Ceespu::R0) {
+    unsigned VReg = F->getRegInfo().createVirtualRegister(&Ceespu::GPRRegClass);
+    BuildMI(*Copy0MBB, Copy0MBB->begin(), DL, TII.get(TargetOpcode::COPY), VReg)
+        .addReg(MI.getOperand(0).getReg());
+    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI), VReg)
+        .addReg(MI.getOperand(5).getReg())
+        .addMBB(Copy0MBB)
+        .addReg(MI.getOperand(4).getReg())
+        .addMBB(ThisMBB);
+  } else if (MI.getOperand(4).getReg() == Ceespu::R0) {
+    unsigned VReg = F->getRegInfo().createVirtualRegister(&Ceespu::GPRRegClass);
+    BuildMI(*Copy0MBB, Copy0MBB->begin(), DL, TII.get(TargetOpcode::COPY), VReg)
+        .addReg(MI.getOperand(4).getReg());
+    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI),
+            MI.getOperand(0).getReg())
+        .addReg(MI.getOperand(5).getReg())
+        .addMBB(Copy0MBB)
+        .addReg(VReg)
+        .addMBB(ThisMBB);
+  } else if (MI.getOperand(5).getReg() == Ceespu::R0) {
+    unsigned VReg = F->getRegInfo().createVirtualRegister(&Ceespu::GPRRegClass);
+    BuildMI(*Copy0MBB, Copy0MBB->begin(), DL, TII.get(TargetOpcode::COPY), VReg)
+        .addReg(MI.getOperand(5).getReg());
+    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI),
+            MI.getOperand(0).getReg())
+        .addReg(VReg)
+        .addMBB(Copy0MBB)
+        .addReg(MI.getOperand(4).getReg())
+        .addMBB(ThisMBB);
+  } else {
+    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI),
+            MI.getOperand(0).getReg())
+        .addReg(MI.getOperand(5).getReg())
+        .addMBB(Copy0MBB)
+        .addReg(MI.getOperand(4).getReg())
+        .addMBB(ThisMBB);
+  }
+  MI.eraseFromParent();  // The pseudo instruction is gone now.
+  return BB;
 }
+/* switch (MI.getOpcode()) {
+   default:
+     llvm_unreachable("Unexpected instr type to insert");
+ }
 
-// Calling Convention Implementation.
-// The expectations for frontend ABI lowering vary from target to target.
-// Ideally, an LLVM frontend would be able to avoid worrying about many ABI
-// details, but this is a longer term goal. For now, we simply try to keep the
-// role of the frontend as simple and well-defined as possible. The rules can
-// be summarised as:
-// * Never split up large scalar arguments. We handle them here.
-// * If a hardfloat calling convention is being used, and the struct may be
-// passed in a pair of registers (fp+fp, int+fp), and both registers are
-// available, then pass as two separate arguments. If either the GPRs or FPRs
-// are exhausted, then pass according to the rule below.
-// * If a struct could never be passed in registers or directly in a stack
-// slot (as it is larger than 2*XLEN and the floating point rules don't
-// apply), then pass it using a pointer with the byval attribute.
-// * If a struct is less than 2*XLEN, then coerce to either a two-element
-// word-sized array or a 2*XLEN scalar (depending on alignment).
-// * The frontend can determine whether a struct is returned by reference or
-// not based on its size and fields. If it will be returned by reference, the
-// frontend must modify the prototype so a pointer with the sret annotation is
-// passed as the first argument. This is not necessary for large scalar
-// returns.
-// * Struct return values and varargs should be coerced to structs containing
-// register-size fields in the same situations they would be for fixed
-// arguments.
+ // To "insert" a SELECT instruction, we actually have to insert the triangle
+ // control-flow pattern.  The incoming instruction knows the destination vreg
+ // to set, the condition code register to branch on, the true/false values to
+ // select between, and the condcode to use to select the appropriate branch.
+ //
+ // We produce the following control flow:
+ //     HeadMBB
+ //     |  \
+ //     |  IfFalseMBB
+ //     | /
+ //    TailMBB
+ const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
+ const BasicBlock *LLVM_BB = BB->getBasicBlock();
+ DebugLoc DL = MI.getDebugLoc();
+ MachineFunction::iterator I = ++BB->getIterator();
 
-static const MCPhysReg ArgGPRs[] = {
-  Ceespu::X10, Ceespu::X11, Ceespu::X12, Ceespu::X13,
-  Ceespu::X14, Ceespu::X15, Ceespu::X16, Ceespu::X17
-};
+ MachineBasicBlock *HeadMBB = BB;
+ MachineFunction *F = BB->getParent();
+ MachineBasicBlock *TailMBB = F->CreateMachineBasicBlock(LLVM_BB);
+ MachineBasicBlock *IfFalseMBB = F->CreateMachineBasicBlock(LLVM_BB);
+
+ F->insert(I, IfFalseMBB);
+ F->insert(I, TailMBB);
+ // Move all remaining instructions to TailMBB.
+ TailMBB->splice(TailMBB->begin(), HeadMBB,
+                 std::next(MachineBasicBlock::iterator(MI)), HeadMBB->end());
+ // Update machine-CFG edges by transferring all successors of the current
+ // block to the new block which will contain the Phi node for the select.
+ TailMBB->transferSuccessorsAndUpdatePHIs(HeadMBB);
+ // Set the successors for HeadMBB.
+ HeadMBB->addSuccessor(IfFalseMBB);
+ HeadMBB->addSuccessor(TailMBB);
+
+ // Insert appropriate branch.
+ unsigned LHS = MI.getOperand(1).getReg();
+ unsigned RHS = MI.getOperand(2).getReg();
+ auto CC = static_cast<ISD::CondCode>(MI.getOperand(3).getImm());
+ unsigned Opcode = getBranchOpcodeForIntCondCode(CC);
+
+ BuildMI(HeadMBB, DL, TII.get(Opcode)).addReg(LHS).addReg(RHS).addMBB(TailMBB);
+
+ // IfFalseMBB just falls through to TailMBB.
+ IfFalseMBB->addSuccessor(TailMBB);
+
+ // %Result = phi [ %TrueValue, HeadMBB ], [ %FalseValue, IfFalseMBB ]
+ BuildMI(*TailMBB, TailMBB->begin(), DL, TII.get(Ceespu::PHI),
+         MI.getOperand(0).getReg())
+     .addReg(MI.getOperand(4).getReg())
+     .addMBB(HeadMBB)
+     .addReg(MI.getOperand(5).getReg())
+     .addMBB(IfFalseMBB);
+
+ MI.eraseFromParent();  // The pseudo instruction is gone now.
+ return TailMBB;
+}
+* /
+   // Calling Convention Implementation.
+   // The expectations for frontend ABI lowering vary from target to target.
+   // Ideally, an LLVM frontend would be able to avoid worrying about many ABI
+   // details, but this is a longer term goal. For now, we simply try to keep
+   // the role of the frontend as simple and well-defined as possible. The
+   // rules can be summarised as:
+   // * Never split up large scalar arguments. We handle them here.
+   // * If a hardfloat calling convention is being used, and the struct may be
+   // passed in a pair of registers (fp+fp, int+fp), and both registers are
+   // available, then pass as two separate arguments. If either the GPRs or
+   // FPRs are exhausted, then pass according to the rule below.
+   // * If a struct could never be passed in registers or directly in a stack
+   // slot (as it is larger than 2*XLEN and the floating point rules don't
+   // apply), then pass it using a pointer with the byval attribute.
+   // * If a struct is less than 2*XLEN, then coerce to either a two-element
+   // word-sized array or a 2*XLEN scalar (depending on alignment).
+   // * The frontend can determine whether a struct is returned by reference or
+   // not based on its size and fields. If it will be returned by reference,
+   // the frontend must modify the prototype so a pointer with the sret
+   // annotation is passed as the first argument. This is not necessary for
+   // large scalar returns.
+   // * Struct return values and varargs should be coerced to structs
+   // containing register-size fields in the same situations they would be for
+   // fixed arguments.
+
+   static const MCPhysReg ArgGPRs[] = {Ceespu::X10, Ceespu::X11, Ceespu::X12,
+                                       Ceespu::X13, Ceespu::X14, Ceespu::X15,
+                                       Ceespu::X16, Ceespu::X17};
 
 // Pass a 2*XLEN argument that has been split into two XLEN values through
 // registers or the stack as necessary.
@@ -655,42 +670,43 @@ static bool CC_CeespuAssign2XLen(unsigned XLen, CCState &State, CCValAssign VA1,
                                 ISD::ArgFlagsTy ArgFlags1, unsigned ValNo2,
                                 MVT ValVT2, MVT LocVT2,
                                 ISD::ArgFlagsTy ArgFlags2) {
-  unsigned XLenInBytes = XLen / 8;
-  if (unsigned Reg = State.AllocateReg(ArgGPRs)) {
-    // At least one half can be passed via register.
-    State.addLoc(CCValAssign::getReg(VA1.getValNo(), VA1.getValVT(), Reg,
-                                     VA1.getLocVT(), CCValAssign::Full));
-  } else {
-    // Both halves must be passed on the stack, with proper alignment.
-    unsigned StackAlign = std::max(XLenInBytes, ArgFlags1.getOrigAlign());
-    State.addLoc(
-        CCValAssign::getMem(VA1.getValNo(), VA1.getValVT(),
-                            State.AllocateStack(XLenInBytes, StackAlign),
-                            VA1.getLocVT(), CCValAssign::Full));
-    State.addLoc(CCValAssign::getMem(
-        ValNo2, ValVT2, State.AllocateStack(XLenInBytes, XLenInBytes), LocVT2,
-        CCValAssign::Full));
-    return false;
-  }
+ unsigned XLenInBytes = XLen / 8;
+ if (unsigned Reg = State.AllocateReg(ArgGPRs)) {
+   // At least one half can be passed via register.
+   State.addLoc(CCValAssign::getReg(VA1.getValNo(), VA1.getValVT(), Reg,
+                                    VA1.getLocVT(), CCValAssign::Full));
+ } else {
+   // Both halves must be passed on the stack, with proper alignment.
+   unsigned StackAlign = std::max(XLenInBytes, ArgFlags1.getOrigAlign());
+   State.addLoc(
+       CCValAssign::getMem(VA1.getValNo(), VA1.getValVT(),
+                           State.AllocateStack(XLenInBytes, StackAlign),
+                           VA1.getLocVT(), CCValAssign::Full));
+   State.addLoc(CCValAssign::getMem(
+       ValNo2, ValVT2, State.AllocateStack(XLenInBytes, XLenInBytes), LocVT2,
+       CCValAssign::Full));
+   return false;
+ }
 
-  if (unsigned Reg = State.AllocateReg(ArgGPRs)) {
-    // The second half can also be passed via register.
-    State.addLoc(
-        CCValAssign::getReg(ValNo2, ValVT2, Reg, LocVT2, CCValAssign::Full));
-  } else {
-    // The second half is passed via the stack, without additional alignment.
-    State.addLoc(CCValAssign::getMem(
-        ValNo2, ValVT2, State.AllocateStack(XLenInBytes, XLenInBytes), LocVT2,
-        CCValAssign::Full));
-  }
+ if (unsigned Reg = State.AllocateReg(ArgGPRs)) {
+   // The second half can also be passed via register.
+   State.addLoc(
+       CCValAssign::getReg(ValNo2, ValVT2, Reg, LocVT2, CCValAssign::Full));
+ } else {
+   // The second half is passed via the stack, without additional alignment.
+   State.addLoc(CCValAssign::getMem(
+       ValNo2, ValVT2, State.AllocateStack(XLenInBytes, XLenInBytes), LocVT2,
+       CCValAssign::Full));
+ }
 
-  return false;
+ return false;
 }
-
+*/
 // Implements the RISC-V calling convention. Returns true upon failure.
-static bool CC_Ceespu(const DataLayout &DL, unsigned ValNo, MVT ValVT, MVT LocVT,
-                     CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
-                     CCState &State, bool IsFixed, bool IsRet, Type *OrigTy) {
+static bool CC_Ceespu(const DataLayout &DL, unsigned ValNo, MVT ValVT,
+                      MVT LocVT, CCValAssign::LocInfo LocInfo,
+                      ISD::ArgFlagsTy ArgFlags, CCState &State, bool IsFixed,
+                      bool IsRet, Type *OrigTy) {
   unsigned XLen = DL.getLargestLegalIntTypeSizeInBits();
   assert(XLen == 32 || XLen == 64);
   MVT XLenVT = XLen == 32 ? MVT::i32 : MVT::i64;
@@ -701,8 +717,7 @@ static bool CC_Ceespu(const DataLayout &DL, unsigned ValNo, MVT ValVT, MVT LocVT
 
   // Any return value split in to more than two values can't be returned
   // directly.
-  if (IsRet && ValNo > 1)
-    return true;
+  if (IsRet && ValNo > 1) return true;
 
   // If this is a variadic argument, the RISC-V calling convention requires
   // that it is assigned an 'even' or 'aligned' register if it has 8-byte
@@ -711,7 +726,7 @@ static bool CC_Ceespu(const DataLayout &DL, unsigned ValNo, MVT ValVT, MVT LocVT
   // legalisation or not. The argument will not be passed by registers if the
   // original type is larger than 2*XLEN, so the register alignment rule does
   // not apply.
-  unsigned TwoXLenInBytes = (2 * XLen) / 8;
+  unsigned TwoXLenInBytes = 8;
   if (!IsFixed && ArgFlags.getOrigAlign() == TwoXLenInBytes &&
       DL.getTypeAllocSize(OrigTy) == TwoXLenInBytes) {
     unsigned RegIdx = State.getFirstUnallocated(ArgGPRs);
@@ -743,8 +758,7 @@ static bool CC_Ceespu(const DataLayout &DL, unsigned ValNo, MVT ValVT, MVT LocVT
           CCValAssign::getMem(ValNo, ValVT, StackOffset, LocVT, LocInfo));
       return false;
     }
-    if (!State.AllocateReg(ArgGPRs))
-      State.AllocateStack(4, 4);
+    if (!State.AllocateReg(ArgGPRs)) State.AllocateStack(4, 4);
     State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
     return false;
   }
@@ -773,7 +787,7 @@ static bool CC_Ceespu(const DataLayout &DL, unsigned ValNo, MVT ValVT, MVT LocVT
     PendingLocs.clear();
     PendingArgFlags.clear();
     return CC_CeespuAssign2XLen(XLen, State, VA, AF, ValNo, ValVT, LocVT,
-                               ArgFlags);
+                                ArgFlags);
   }
 
   // Allocate to a register if possible, or else a stack slot.
@@ -826,7 +840,7 @@ void CeespuTargetLowering::analyzeInputArgs(
       ArgTy = FType->getParamType(Ins[i].getOrigArgIndex());
 
     if (CC_Ceespu(MF.getDataLayout(), i, ArgVT, ArgVT, CCValAssign::Full,
-                 ArgFlags, CCInfo, /*IsRet=*/true, IsRet, ArgTy)) {
+                  ArgFlags, CCInfo, /*IsRet=*/true, IsRet, ArgTy)) {
       LLVM_DEBUG(dbgs() << "InputArg #" << i << " has unhandled type "
                         << EVT(ArgVT).getEVTString() << '\n');
       llvm_unreachable(nullptr);
@@ -846,7 +860,7 @@ void CeespuTargetLowering::analyzeOutputArgs(
     Type *OrigTy = CLI ? CLI->getArgs()[Outs[i].OrigArgIndex].Ty : nullptr;
 
     if (CC_Ceespu(MF.getDataLayout(), i, ArgVT, ArgVT, CCValAssign::Full,
-                 ArgFlags, CCInfo, Outs[i].IsFixed, IsRet, OrigTy)) {
+                  ArgFlags, CCInfo, Outs[i].IsFixed, IsRet, OrigTy)) {
       LLVM_DEBUG(dbgs() << "OutputArg #" << i << " has unhandled type "
                         << EVT(ArgVT).getEVTString() << "\n");
       llvm_unreachable(nullptr);
@@ -869,14 +883,14 @@ static SDValue unpackFromRegLoc(SelectionDAG &DAG, SDValue Chain,
   Val = DAG.getCopyFromReg(Chain, DL, VReg, LocVT);
 
   switch (VA.getLocInfo()) {
-  default:
-    llvm_unreachable("Unexpected CCValAssign::LocInfo");
-  case CCValAssign::Full:
-  case CCValAssign::Indirect:
-    break;
-  case CCValAssign::BCvt:
-    Val = DAG.getNode(ISD::BITCAST, DL, ValVT, Val);
-    break;
+    default:
+      llvm_unreachable("Unexpected CCValAssign::LocInfo");
+    case CCValAssign::Full:
+    case CCValAssign::Indirect:
+      break;
+    case CCValAssign::BCvt:
+      Val = DAG.getNode(ISD::BITCAST, DL, ValVT, Val);
+      break;
   }
   return Val;
 }
@@ -897,12 +911,12 @@ static SDValue unpackFromMemLoc(SelectionDAG &DAG, SDValue Chain,
 
   ISD::LoadExtType ExtType;
   switch (VA.getLocInfo()) {
-  default:
-    llvm_unreachable("Unexpected CCValAssign::LocInfo");
-  case CCValAssign::Full:
-  case CCValAssign::Indirect:
-    ExtType = ISD::NON_EXTLOAD;
-    break;
+    default:
+      llvm_unreachable("Unexpected CCValAssign::LocInfo");
+    case CCValAssign::Full:
+    case CCValAssign::Indirect:
+      ExtType = ISD::NON_EXTLOAD;
+      break;
   }
   Val = DAG.getExtLoad(
       ExtType, DL, LocVT, Chain, FIN,
@@ -910,55 +924,17 @@ static SDValue unpackFromMemLoc(SelectionDAG &DAG, SDValue Chain,
   return Val;
 }
 
-static SDValue unpackF64OnRV32DSoftABI(SelectionDAG &DAG, SDValue Chain,
-                                       const CCValAssign &VA, const SDLoc &DL) {
-  assert(VA.getLocVT() == MVT::i32 && VA.getValVT() == MVT::f64 &&
-         "Unexpected VA");
-  MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo &MFI = MF.getFrameInfo();
-  MachineRegisterInfo &RegInfo = MF.getRegInfo();
-
-  if (VA.isMemLoc()) {
-    // f64 is passed on the stack.
-    int FI = MFI.CreateFixedObject(8, VA.getLocMemOffset(), /*Immutable=*/true);
-    SDValue FIN = DAG.getFrameIndex(FI, MVT::i32);
-    return DAG.getLoad(MVT::f64, DL, Chain, FIN,
-                       MachinePointerInfo::getFixedStack(MF, FI));
-  }
-
-  assert(VA.isRegLoc() && "Expected register VA assignment");
-
-  unsigned LoVReg = RegInfo.createVirtualRegister(&Ceespu::GPRRegClass);
-  RegInfo.addLiveIn(VA.getLocReg(), LoVReg);
-  SDValue Lo = DAG.getCopyFromReg(Chain, DL, LoVReg, MVT::i32);
-  SDValue Hi;
-  if (VA.getLocReg() == Ceespu::X17) {
-    // Second half of f64 is passed on the stack.
-    int FI = MFI.CreateFixedObject(4, 0, /*Immutable=*/true);
-    SDValue FIN = DAG.getFrameIndex(FI, MVT::i32);
-    Hi = DAG.getLoad(MVT::i32, DL, Chain, FIN,
-                     MachinePointerInfo::getFixedStack(MF, FI));
-  } else {
-    // Second half of f64 is passed in another GPR.
-    unsigned HiVReg = RegInfo.createVirtualRegister(&Ceespu::GPRRegClass);
-    RegInfo.addLiveIn(VA.getLocReg() + 1, HiVReg);
-    Hi = DAG.getCopyFromReg(Chain, DL, HiVReg, MVT::i32);
-  }
-  return DAG.getNode(CeespuISD::BuildPairF64, DL, MVT::f64, Lo, Hi);
-}
-
 // Transform physical registers into virtual registers.
 SDValue CeespuTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
-
   switch (CallConv) {
-  default:
-    report_fatal_error("Unsupported calling convention");
-  case CallingConv::C:
-  case CallingConv::Fast:
-    break;
+    default:
+      report_fatal_error("Unsupported calling convention");
+    case CallingConv::C:
+    case CallingConv::Fast:
+      break;
   }
 
   MachineFunction &MF = DAG.getMachineFunction();
@@ -1078,9 +1054,8 @@ SDValue CeespuTargetLowering::LowerFormalArguments(
 /// for tail call optimization.
 /// Note: This is modelled after ARM's IsEligibleForTailCallOptimization.
 bool CeespuTargetLowering::IsEligibleForTailCallOptimization(
-  CCState &CCInfo, CallLoweringInfo &CLI, MachineFunction &MF,
-  const SmallVector<CCValAssign, 16> &ArgLocs) const {
-
+    CCState &CCInfo, CallLoweringInfo &CLI, MachineFunction &MF,
+    const SmallVector<CCValAssign, 16> &ArgLocs) const {
   auto &Callee = CLI.Callee;
   auto CalleeCC = CLI.CallConv;
   auto IsVarArg = CLI.IsVarArg;
@@ -1097,16 +1072,13 @@ bool CeespuTargetLowering::IsEligibleForTailCallOptimization(
   // probably break this.
   // TODO: The "interrupt" attribute isn't currently defined by RISC-V. This
   // should be expanded as new function attributes are introduced.
-  if (Caller.hasFnAttribute("interrupt"))
-    return false;
+  if (Caller.hasFnAttribute("interrupt")) return false;
 
   // Do not tail call opt functions with varargs.
-  if (IsVarArg)
-    return false;
+  if (IsVarArg) return false;
 
   // Do not tail call opt if the stack is used to pass parameters.
-  if (CCInfo.getNextStackOffset() != 0)
-    return false;
+  if (CCInfo.getNextStackOffset() != 0) return false;
 
   // Do not tail call opt if any parameters need to be passed indirectly.
   // Since long doubles (fp128) and i128 are larger than 2*XLEN, they are
@@ -1117,15 +1089,13 @@ bool CeespuTargetLowering::IsEligibleForTailCallOptimization(
   // != 0 check is not enough and we need to check if any CCValAssign ArgsLocs
   // are passed CCValAssign::Indirect.
   for (auto &VA : ArgLocs)
-    if (VA.getLocInfo() == CCValAssign::Indirect)
-      return false;
+    if (VA.getLocInfo() == CCValAssign::Indirect) return false;
 
   // Do not tail call opt if either caller or callee uses struct return
   // semantics.
   auto IsCallerStructRet = Caller.hasStructRetAttr();
   auto IsCalleeStructRet = Outs.empty() ? false : Outs[0].Flags.isSRet();
-  if (IsCallerStructRet || IsCalleeStructRet)
-    return false;
+  if (IsCallerStructRet || IsCalleeStructRet) return false;
 
   // Externally-defined functions with weak linkage should not be
   // tail-called. The behaviour of branch instructions in this situation (as
@@ -1133,8 +1103,7 @@ bool CeespuTargetLowering::IsEligibleForTailCallOptimization(
   // linker replacing the tail call with a return.
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     const GlobalValue *GV = G->getGlobal();
-    if (GV->hasExternalWeakLinkage())
-      return false;
+    if (GV->hasExternalWeakLinkage()) return false;
   }
 
   // The callee has to preserve all registers the caller needs to preserve.
@@ -1150,16 +1119,15 @@ bool CeespuTargetLowering::IsEligibleForTailCallOptimization(
   // we want to reuse during a tail call. Working around this *is* possible
   // but less efficient and uglier in LowerCall.
   for (auto &Arg : Outs)
-    if (Arg.Flags.isByVal())
-      return false;
+    if (Arg.Flags.isByVal()) return false;
 
   return true;
 }
 
 // Lower a call to a callseq_start + CALL + callseq_end chain, and add input
 // and output parameter nodes.
-SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
-                                       SmallVectorImpl<SDValue> &InVals) const {
+SDValue CeespuTargetLowering::LowerCall(
+    CallLoweringInfo &CLI, SmallVectorImpl<SDValue> &InVals) const {
   SelectionDAG &DAG = CLI.DAG;
   SDLoc &DL = CLI.DL;
   SmallVectorImpl<ISD::OutputArg> &Outs = CLI.Outs;
@@ -1182,14 +1150,14 @@ SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   // Check if it's really possible to do a tail call.
   if (IsTailCall)
-    IsTailCall = IsEligibleForTailCallOptimization(ArgCCInfo, CLI, MF,
-                                                   ArgLocs);
+    IsTailCall = IsEligibleForTailCallOptimization(ArgCCInfo, CLI, MF, ArgLocs);
 
   if (IsTailCall)
     ++NumTailCalls;
   else if (CLI.CS && CLI.CS.isMustTailCall())
-    report_fatal_error("failed to perform tail call elimination on a call "
-                       "site marked musttail");
+    report_fatal_error(
+        "failed to perform tail call elimination on a call "
+        "site marked musttail");
 
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NumBytes = ArgCCInfo.getNextStackOffset();
@@ -1198,8 +1166,7 @@ SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
   SmallVector<SDValue, 8> ByValArgs;
   for (unsigned i = 0, e = Outs.size(); i != e; ++i) {
     ISD::ArgFlagsTy Flags = Outs[i].Flags;
-    if (!Flags.isByVal())
-      continue;
+    if (!Flags.isByVal()) continue;
 
     SDValue Arg = OutVals[i];
     unsigned Size = Flags.getByValSize();
@@ -1211,14 +1178,12 @@ SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
     Chain = DAG.getMemcpy(Chain, DL, FIPtr, Arg, SizeNode, Align,
                           /*IsVolatile=*/false,
-                          /*AlwaysInline=*/false,
-                          IsTailCall, MachinePointerInfo(),
-                          MachinePointerInfo());
+                          /*AlwaysInline=*/false, IsTailCall,
+                          MachinePointerInfo(), MachinePointerInfo());
     ByValArgs.push_back(FIPtr);
   }
 
-  if (!IsTailCall)
-    Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, CLI.DL);
+  if (!IsTailCall) Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, CLI.DL);
 
   // Copy argument values to their designated locations.
   SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPass;
@@ -1263,50 +1228,50 @@ SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
     // Promote the value if needed.
     // For now, only handle fully promoted and indirect arguments.
     switch (VA.getLocInfo()) {
-    case CCValAssign::Full:
-      break;
-    case CCValAssign::BCvt:
-      ArgValue = DAG.getNode(ISD::BITCAST, DL, VA.getLocVT(), ArgValue);
-      break;
-    case CCValAssign::Indirect: {
-      // Store the argument in a stack slot and pass its address.
-      SDValue SpillSlot = DAG.CreateStackTemporary(Outs[i].ArgVT);
-      int FI = cast<FrameIndexSDNode>(SpillSlot)->getIndex();
-      MemOpChains.push_back(
-          DAG.getStore(Chain, DL, ArgValue, SpillSlot,
-                       MachinePointerInfo::getFixedStack(MF, FI)));
-      // If the original argument was split (e.g. i128), we need
-      // to store all parts of it here (and pass just one address).
-      unsigned ArgIndex = Outs[i].OrigArgIndex;
-      assert(Outs[i].PartOffset == 0);
-      while (i + 1 != e && Outs[i + 1].OrigArgIndex == ArgIndex) {
-        SDValue PartValue = OutVals[i + 1];
-        unsigned PartOffset = Outs[i + 1].PartOffset;
-        SDValue Address = DAG.getNode(ISD::ADD, DL, PtrVT, SpillSlot,
-                                      DAG.getIntPtrConstant(PartOffset, DL));
+      case CCValAssign::Full:
+        break;
+      case CCValAssign::BCvt:
+        ArgValue = DAG.getNode(ISD::BITCAST, DL, VA.getLocVT(), ArgValue);
+        break;
+      case CCValAssign::Indirect: {
+        // Store the argument in a stack slot and pass its address.
+        SDValue SpillSlot = DAG.CreateStackTemporary(Outs[i].ArgVT);
+        int FI = cast<FrameIndexSDNode>(SpillSlot)->getIndex();
         MemOpChains.push_back(
-            DAG.getStore(Chain, DL, PartValue, Address,
+            DAG.getStore(Chain, DL, ArgValue, SpillSlot,
                          MachinePointerInfo::getFixedStack(MF, FI)));
-        ++i;
+        // If the original argument was split (e.g. i128), we need
+        // to store all parts of it here (and pass just one address).
+        unsigned ArgIndex = Outs[i].OrigArgIndex;
+        assert(Outs[i].PartOffset == 0);
+        while (i + 1 != e && Outs[i + 1].OrigArgIndex == ArgIndex) {
+          SDValue PartValue = OutVals[i + 1];
+          unsigned PartOffset = Outs[i + 1].PartOffset;
+          SDValue Address = DAG.getNode(ISD::ADD, DL, PtrVT, SpillSlot,
+                                        DAG.getIntPtrConstant(PartOffset, DL));
+          MemOpChains.push_back(
+              DAG.getStore(Chain, DL, PartValue, Address,
+                           MachinePointerInfo::getFixedStack(MF, FI)));
+          ++i;
+        }
+        ArgValue = SpillSlot;
+        break;
       }
-      ArgValue = SpillSlot;
-      break;
-    }
-    default:
-      llvm_unreachable("Unknown loc info!");
+      default:
+        llvm_unreachable("Unknown loc info!");
     }
 
     // Use local copy if it is a byval arg.
-    if (Flags.isByVal())
-      ArgValue = ByValArgs[j++];
+    if (Flags.isByVal()) ArgValue = ByValArgs[j++];
 
     if (VA.isRegLoc()) {
       // Queue up the argument copies and emit them at the end.
       RegsToPass.push_back(std::make_pair(VA.getLocReg(), ArgValue));
     } else {
       assert(VA.isMemLoc() && "Argument not register or memory");
-      assert(!IsTailCall && "Tail call not allowed if stack is used "
-                            "for passing parameters");
+      assert(!IsTailCall &&
+             "Tail call not allowed if stack is used "
+             "for passing parameters");
 
       // Work out the address of the stack slot.
       if (!StackPtr.getNode())
@@ -1361,8 +1326,7 @@ SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
   }
 
   // Glue the call to the argument copies, if any.
-  if (Glue.getNode())
-    Ops.push_back(Glue);
+  if (Glue.getNode()) Ops.push_back(Glue);
 
   // Emit the call.
   SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
@@ -1376,10 +1340,8 @@ SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
   Glue = Chain.getValue(1);
 
   // Mark the end of the call, which is glued to the call itself.
-  Chain = DAG.getCALLSEQ_END(Chain,
-                             DAG.getConstant(NumBytes, DL, PtrVT, true),
-                             DAG.getConstant(0, DL, PtrVT, true),
-                             Glue, DL);
+  Chain = DAG.getCALLSEQ_END(Chain, DAG.getConstant(NumBytes, DL, PtrVT, true),
+                             DAG.getConstant(0, DL, PtrVT, true), Glue, DL);
   Glue = Chain.getValue(1);
 
   // Assign locations to each value returned by this call.
@@ -1406,13 +1368,13 @@ SDValue CeespuTargetLowering::LowerCall(CallLoweringInfo &CLI,
     }
 
     switch (VA.getLocInfo()) {
-    default:
-      llvm_unreachable("Unknown loc info!");
-    case CCValAssign::Full:
-      break;
-    case CCValAssign::BCvt:
-      RetValue = DAG.getNode(ISD::BITCAST, DL, VA.getValVT(), RetValue);
-      break;
+      default:
+        llvm_unreachable("Unknown loc info!");
+      case CCValAssign::Full:
+        break;
+      case CCValAssign::BCvt:
+        RetValue = DAG.getNode(ISD::BITCAST, DL, VA.getValVT(), RetValue);
+        break;
     }
 
     InVals.push_back(RetValue);
@@ -1430,7 +1392,7 @@ bool CeespuTargetLowering::CanLowerReturn(
     MVT VT = Outs[i].VT;
     ISD::ArgFlagsTy ArgFlags = Outs[i].Flags;
     if (CC_Ceespu(MF.getDataLayout(), i, VT, VT, CCValAssign::Full, ArgFlags,
-                 CCInfo, /*IsFixed=*/true, /*IsRet=*/true, nullptr))
+                  CCInfo, /*IsFixed=*/true, /*IsRet=*/true, nullptr))
       return false;
   }
   return true;
@@ -1441,23 +1403,22 @@ static SDValue packIntoRegLoc(SelectionDAG &DAG, SDValue Val,
   EVT LocVT = VA.getLocVT();
 
   switch (VA.getLocInfo()) {
-  default:
-    llvm_unreachable("Unexpected CCValAssign::LocInfo");
-  case CCValAssign::Full:
-    break;
-  case CCValAssign::BCvt:
-    Val = DAG.getNode(ISD::BITCAST, DL, LocVT, Val);
-    break;
+    default:
+      llvm_unreachable("Unexpected CCValAssign::LocInfo");
+    case CCValAssign::Full:
+      break;
+    case CCValAssign::BCvt:
+      Val = DAG.getNode(ISD::BITCAST, DL, LocVT, Val);
+      break;
   }
   return Val;
 }
 
-SDValue
-CeespuTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
-                                 bool IsVarArg,
-                                 const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                 const SmallVectorImpl<SDValue> &OutVals,
-                                 const SDLoc &DL, SelectionDAG &DAG) const {
+SDValue CeespuTargetLowering::LowerReturn(
+    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
+    const SmallVectorImpl<ISD::OutputArg> &Outs,
+    const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
+    SelectionDAG &DAG) const {
   // Stores the assignment of the return value to a location.
   SmallVector<CCValAssign, 16> RVLocs;
 
@@ -1503,7 +1464,7 @@ CeespuTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     }
   }
 
-  RetOps[0] = Chain; // Update chain.
+  RetOps[0] = Chain;  // Update chain.
 
   // Add the glue node if we have it.
   if (Glue.getNode()) {
@@ -1515,36 +1476,35 @@ CeespuTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 
 const char *CeespuTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch ((CeespuISD::NodeType)Opcode) {
-  case CeespuISD::FIRST_NUMBER:
-    break;
-  case CeespuISD::RET_FLAG:
-    return "CeespuISD::RET_FLAG";
-  case CeespuISD::CALL:
-    return "CeespuISD::CALL";
-  case CeespuISD::SELECT_CC:
-    return "CeespuISD::SELECT_CC";
-  case CeespuISD::BuildPairF64:
-    return "CeespuISD::BuildPairF64";
-  case CeespuISD::SplitF64:
-    return "CeespuISD::SplitF64";
-  case CeespuISD::TAIL:
-    return "CeespuISD::TAIL";
+    case CeespuISD::FIRST_NUMBER:
+      break;
+    case CeespuISD::RET_FLAG:
+      return "CeespuISD::RET_FLAG";
+    case CeespuISD::CALL:
+      return "CeespuISD::CALL";
+    case CeespuISD::SELECT_CC:
+      return "CeespuISD::SELECT_CC";
+    case CeespuISD::BuildPairF64:
+      return "CeespuISD::BuildPairF64";
+    case CeespuISD::SplitF64:
+      return "CeespuISD::SplitF64";
+    case CeespuISD::TAIL:
+      return "CeespuISD::TAIL";
   }
   return nullptr;
 }
 
 std::pair<unsigned, const TargetRegisterClass *>
-CeespuTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                                                  StringRef Constraint,
-                                                  MVT VT) const {
+CeespuTargetLowering::getRegForInlineAsmConstraint(
+    const TargetRegisterInfo *TRI, StringRef Constraint, MVT VT) const {
   // First, see if this is a constraint that directly corresponds to a
   // Ceespu register class.
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
-    case 'r':
-      return std::make_pair(0U, &Ceespu::GPRRegClass);
-    default:
-      break;
+      case 'r':
+        return std::make_pair(0U, &Ceespu::GPRRegClass);
+      default:
+        break;
     }
   }
 

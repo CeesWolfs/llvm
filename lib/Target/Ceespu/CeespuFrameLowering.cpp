@@ -62,19 +62,19 @@ void CeespuFrameLowering::adjustReg(MachineBasicBlock &MBB,
   if (DestReg == SrcReg && Val == 0) return;
 
   if (isInt<12>(Val)) {
-    BuildMI(MBB, MBBI, DL, TII->get(Ceespu::ADDri), DestReg)
+    BuildMI(MBB, MBBI, DL, TII->get(Ceespu::ADDI), DestReg)
         .addReg(SrcReg)
         .addImm(Val)
         .setMIFlag(Flag);
   } else if (isInt<32>(Val)) {
-    unsigned Opc = Ceespu::ADDrr;
+    unsigned Opc = Ceespu::ADD;
     bool isSub = Val < 0;
     if (isSub) {
       Val = -Val;
-      Opc = Ceespu::SUBrr;
+      Opc = Ceespu::SUB;
     }
 
-    unsigned ScratchReg = MRI.createVirtualRegister(&Ceespu::GPR);
+    unsigned ScratchReg = MRI.createVirtualRegister(&Ceespu::GPRRegClass);
     TII->movImm32(MBB, MBBI, DL, ScratchReg, Val, Flag);
     BuildMI(MBB, MBBI, DL, TII->get(Opc), DestReg)
         .addReg(SrcReg)
@@ -89,7 +89,7 @@ void CeespuFrameLowering::adjustReg(MachineBasicBlock &MBB,
 static unsigned getFPReg(const CeespuSubtarget &STI) { return Ceespu::R17; }
 
 // Returns the register used to hold the stack pointer.
-static unsigned getSPReg(const CeespuSubtarget &STI) { return Ceespu::CSP; }
+static unsigned getSPReg(const CeespuSubtarget &STI) { return Ceespu::SP; }
 
 void CeespuFrameLowering::emitPrologue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
@@ -223,7 +223,7 @@ void CeespuFrameLowering::processFunctionBeforeFrameFinalized(
   // FIXME: It may be possible to craft a function with a small stack that
   // still needs an emergency spill slot for branch relaxation. This case
   // would currently be missed.
-  if (!isInt<11>(MFI.estimateStackSize(MF))) {
+  if (!isInt<14>(MFI.estimateStackSize(MF))) {
     int RegScavFI = MFI.CreateStackObject(
         RegInfo->getSpillSize(*RC), RegInfo->getSpillAlignment(*RC), false);
     RS->addScavengingFrameIndex(RegScavFI);

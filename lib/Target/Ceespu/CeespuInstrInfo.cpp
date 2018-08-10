@@ -1,4 +1,5 @@
-//===-- CeespuInstrInfo.cpp - Ceespu Instruction Information ------*- C++ -*-===//
+//===-- CeespuInstrInfo.cpp - Ceespu Instruction Information ------*- C++
+//-*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -33,16 +34,16 @@ CeespuInstrInfo::CeespuInstrInfo()
     : CeespuGenInstrInfo(Ceespu::ADJCALLSTACKDOWN, Ceespu::ADJCALLSTACKUP) {}
 
 unsigned CeespuInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
-                                             int &FrameIndex) const {
+                                              int &FrameIndex) const {
   switch (MI.getOpcode()) {
-  default:
-    return 0;
-  case Ceespu::LB:
-  case Ceespu::LBU:
-  case Ceespu::LH:
-  case Ceespu::LHU:
-  case Ceespu::LW:
-    break;
+    default:
+      return 0;
+    case Ceespu::LB:
+    case Ceespu::LBU:
+    case Ceespu::LH:
+    case Ceespu::LHU:
+    case Ceespu::LW:
+      break;
   }
 
   if (MI.getOperand(1).isFI() && MI.getOperand(2).isImm() &&
@@ -55,14 +56,14 @@ unsigned CeespuInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
 }
 
 unsigned CeespuInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
-                                            int &FrameIndex) const {
+                                             int &FrameIndex) const {
   switch (MI.getOpcode()) {
-  default:
-    return 0;
-  case Ceespu::SB:
-  case Ceespu::SH:
-  case Ceespu::SW:
-    break;
+    default:
+      return 0;
+    case Ceespu::SB:
+    case Ceespu::SH:
+    case Ceespu::SW:
+      break;
   }
 
   if (MI.getOperand(0).isFI() && MI.getOperand(1).isImm() &&
@@ -75,35 +76,33 @@ unsigned CeespuInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
 }
 
 void CeespuInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                                 MachineBasicBlock::iterator MBBI,
-                                 const DebugLoc &DL, unsigned DstReg,
-                                 unsigned SrcReg, bool KillSrc) const {
-  if (Ceespu::GPR.contains(DstReg, SrcReg)) {
-    BuildMI(MBB, MBBI, DL, get(Ceespu::ADDri), DstReg)
+                                  MachineBasicBlock::iterator MBBI,
+                                  const DebugLoc &DL, unsigned DstReg,
+                                  unsigned SrcReg, bool KillSrc) const {
+  if (Ceespu::GPRRegClass.contains(DstReg, SrcReg)) {
+    BuildMI(MBB, MBBI, DL, get(Ceespu::ADDI), DstReg)
         .addReg(SrcReg, getKillRegState(KillSrc))
         .addImm(0);
     return;
-  }
-  else
+  } else
     llvm_unreachable("Impossible reg-to-reg copy");
-
+  unsigned Opc;
   BuildMI(MBB, MBBI, DL, get(Opc), DstReg)
       .addReg(SrcReg, getKillRegState(KillSrc))
       .addReg(SrcReg, getKillRegState(KillSrc));
 }
 
 void CeespuInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
-                                         MachineBasicBlock::iterator I,
-                                         unsigned SrcReg, bool IsKill, int FI,
-                                         const TargetRegisterClass *RC,
-                                         const TargetRegisterInfo *TRI) const {
+                                          MachineBasicBlock::iterator I,
+                                          unsigned SrcReg, bool IsKill, int FI,
+                                          const TargetRegisterClass *RC,
+                                          const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
-  if (I != MBB.end())
-    DL = I->getDebugLoc();
+  if (I != MBB.end()) DL = I->getDebugLoc();
 
   unsigned Opcode;
 
-  if (Ceespu::GPR.hasSubClassEq(RC))
+  if (Ceespu::GPRRegClass.hasSubClassEq(RC))
     Opcode = Ceespu::SW;
   else
     llvm_unreachable("Can't store this register to stack slot");
@@ -114,18 +113,16 @@ void CeespuInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
       .addImm(0);
 }
 
-void CeespuInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
-                                          MachineBasicBlock::iterator I,
-                                          unsigned DstReg, int FI,
-                                          const TargetRegisterClass *RC,
-                                          const TargetRegisterInfo *TRI) const {
+void CeespuInstrInfo::loadRegFromStackSlot(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator I, unsigned DstReg,
+    int FI, const TargetRegisterClass *RC,
+    const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
-  if (I != MBB.end())
-    DL = I->getDebugLoc();
+  if (I != MBB.end()) DL = I->getDebugLoc();
 
   unsigned Opcode;
 
-  if (Ceespu::GPR.hasSubClassEq(RC))
+  if (Ceespu::GPRRegClass.hasSubClassEq(RC))
     Opcode = Ceespu::LW;
   else
     llvm_unreachable("Can't load this register from stack slot");
@@ -134,22 +131,18 @@ void CeespuInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 }
 
 void CeespuInstrInfo::movImm32(MachineBasicBlock &MBB,
-                              MachineBasicBlock::iterator MBBI,
-                              const DebugLoc &DL, unsigned DstReg, uint64_t Val,
-                              MachineInstr::MIFlag Flag) const {
+                               MachineBasicBlock::iterator MBBI,
+                               const DebugLoc &DL, unsigned DstReg,
+                               uint64_t Val, MachineInstr::MIFlag Flag) const {
   assert(isInt<32>(Val) && "Can only materialize 32-bit constants");
 
   // TODO: If the value can be materialized using only one instruction, only
   // insert a single instruction.
 
   uint64_t Hi16 = Val >> 16;
-  uint64_t Lo16 = Val && 0xffff
-  BuildMI(MBB, MBBI, DL, get(Ceespu::ADD_ri), DstReg).addReg(Ceespu::C0).addImm(Hi16)
-  )
-  BuildMI(MBB, MBBI, DL, get(Ceespu::SLL_ri), DstReg)
-      .addImm(16)
-      .setMIFlag(Flag);
-  BuildMI(MBB, MBBI, DL, get(Ceespu::ADD_ri), DstReg)
+  uint64_t Lo16 = Val & 0xffff;
+  BuildMI(MBB, MBBI, DL, get(Ceespu::SETHI)).addImm(Hi16);
+  BuildMI(MBB, MBBI, DL, get(Ceespu::ADDI), DstReg)
       .addReg(DstReg, RegState::Kill)
       .addImm(Lo16)
       .setMIFlag(Flag);
@@ -171,35 +164,26 @@ static void parseCondBranch(MachineInstr &LastInst, MachineBasicBlock *&Target,
 
 static unsigned getOppositeBranchOpcode(int Opc) {
   switch (Opc) {
-  default:
-    llvm_unreachable("Unrecognized conditional branch");
-  case Ceespu::BEQ:
-    return Ceespu::BNE;
-  case Ceespu::BNE:
-    return Ceespu::BEQ;
-  case Ceespu::BLT:
-    return Ceespu::BGE;
-  case Ceespu::BGE:
-    return Ceespu::BLT;
-  case Ceespu::BLTU:
-    return Ceespu::BGEU;
-  case Ceespu::BGEU:
-    return Ceespu::BLTU;
+    default:
+      llvm_unreachable("Unrecognized conditional branch");
+    case Ceespu::BEQ:
+      return Ceespu::BNE;
+    case Ceespu::BNE:
+      return Ceespu::BEQ;
   }
 }
 
 bool CeespuInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
-                                   MachineBasicBlock *&TBB,
-                                   MachineBasicBlock *&FBB,
-                                   SmallVectorImpl<MachineOperand> &Cond,
-                                   bool AllowModify) const {
+                                    MachineBasicBlock *&TBB,
+                                    MachineBasicBlock *&FBB,
+                                    SmallVectorImpl<MachineOperand> &Cond,
+                                    bool AllowModify) const {
   TBB = FBB = nullptr;
   Cond.clear();
 
   // If the block has no terminators, it just falls into the block after it.
   MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
-  if (I == MBB.end() || !isUnpredicatedTerminator(*I))
-    return false;
+  if (I == MBB.end() || !isUnpredicatedTerminator(*I)) return false;
 
   // Count the number of terminators and find the first unconditional or
   // indirect branch.
@@ -225,12 +209,10 @@ bool CeespuInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
   }
 
   // We can't handle blocks that end in an indirect branch.
-  if (I->getDesc().isIndirectBranch())
-    return true;
+  if (I->getDesc().isIndirectBranch()) return true;
 
   // We can't handle blocks with more than 2 terminators.
-  if (NumTerminators > 2)
-    return true;
+  if (NumTerminators > 2) return true;
 
   // Handle a single unconditional branch.
   if (NumTerminators == 1 && I->getDesc().isUnconditionalBranch()) {
@@ -257,12 +239,10 @@ bool CeespuInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
 }
 
 unsigned CeespuInstrInfo::removeBranch(MachineBasicBlock &MBB,
-                                      int *BytesRemoved) const {
-  if (BytesRemoved)
-    *BytesRemoved = 0;
+                                       int *BytesRemoved) const {
+  if (BytesRemoved) *BytesRemoved = 0;
   MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
-  if (I == MBB.end())
-    return 0;
+  if (I == MBB.end()) return 0;
 
   if (!I->getDesc().isUnconditionalBranch() &&
       !I->getDesc().isConditionalBranch())
@@ -270,21 +250,17 @@ unsigned CeespuInstrInfo::removeBranch(MachineBasicBlock &MBB,
 
   // Remove the branch.
   I->eraseFromParent();
-  if (BytesRemoved)
-    *BytesRemoved += getInstSizeInBytes(*I);
+  if (BytesRemoved) *BytesRemoved += getInstSizeInBytes(*I);
 
   I = MBB.end();
 
-  if (I == MBB.begin())
-    return 1;
+  if (I == MBB.begin()) return 1;
   --I;
-  if (!I->getDesc().isConditionalBranch())
-    return 1;
+  if (!I->getDesc().isConditionalBranch()) return 1;
 
   // Remove the branch.
   I->eraseFromParent();
-  if (BytesRemoved)
-    *BytesRemoved += getInstSizeInBytes(*I);
+  if (BytesRemoved) *BytesRemoved += getInstSizeInBytes(*I);
   return 2;
 }
 
@@ -293,8 +269,7 @@ unsigned CeespuInstrInfo::removeBranch(MachineBasicBlock &MBB,
 unsigned CeespuInstrInfo::insertBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
     ArrayRef<MachineOperand> Cond, const DebugLoc &DL, int *BytesAdded) const {
-  if (BytesAdded)
-    *BytesAdded = 0;
+  if (BytesAdded) *BytesAdded = 0;
 
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
@@ -303,9 +278,8 @@ unsigned CeespuInstrInfo::insertBranch(
 
   // Unconditional branch.
   if (Cond.empty()) {
-    MachineInstr &MI = *BuildMI(&MBB, DL, get(Ceespu::PseudoBR)).addMBB(TBB);
-    if (BytesAdded)
-      *BytesAdded += getInstSizeInBytes(MI);
+    MachineInstr &MI = *BuildMI(&MBB, DL, get(Ceespu::JMP)).addMBB(TBB);
+    if (BytesAdded) *BytesAdded += getInstSizeInBytes(MI);
     return 1;
   }
 
@@ -313,25 +287,25 @@ unsigned CeespuInstrInfo::insertBranch(
   unsigned Opc = Cond[0].getImm();
   MachineInstr &CondMI =
       *BuildMI(&MBB, DL, get(Opc)).add(Cond[1]).add(Cond[2]).addMBB(TBB);
-  if (BytesAdded)
-    *BytesAdded += getInstSizeInBytes(CondMI);
+  if (BytesAdded) *BytesAdded += getInstSizeInBytes(CondMI);
 
   // One-way conditional branch.
-  if (!FBB)
-    return 1;
+  if (!FBB) return 1;
+
+  llvm_unreachable("Ceespu two-way conditional branches not supported");
 
   // Two-way conditional branch.
-  MachineInstr &MI = *BuildMI(&MBB, DL, get(Ceespu::PseudoBR)).addMBB(FBB);
-  if (BytesAdded)
-    *BytesAdded += getInstSizeInBytes(MI);
+  // MachineInstr &MI = *BuildMI(&MBB, DL,
+  // get(Ceespu::PseudoBR)).addMBB(FBB); if (BytesAdded) *BytesAdded +=
+  // getInstSizeInBytes(MI);
   return 2;
 }
 
-unsigned CeespuInstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
-                                              MachineBasicBlock &DestBB,
-                                              const DebugLoc &DL,
-                                              int64_t BrOffset,
-                                              RegScavenger *RS) const {
+/*unsigned CeespuInstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
+                                               MachineBasicBlock &DestBB,
+                                               const DebugLoc &DL,
+                                               int64_t BrOffset,
+                                               RegScavenger *RS) const {
   assert(RS && "RegScavenger required for long branching");
   assert(MBB.empty() &&
          "new block should be inserted for expanding unconditional branch");
@@ -369,6 +343,7 @@ unsigned CeespuInstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
   RS->setRegUsed(Scav);
   return 8;
 }
+*/
 
 bool CeespuInstrInfo::reverseBranchCondition(
     SmallVectorImpl<MachineOperand> &Cond) const {
@@ -377,8 +352,8 @@ bool CeespuInstrInfo::reverseBranchCondition(
   return false;
 }
 
-MachineBasicBlock *
-CeespuInstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
+MachineBasicBlock *CeespuInstrInfo::getBranchDestBlock(
+    const MachineInstr &MI) const {
   assert(MI.getDesc().isBranch() && "Unexpected opcode!");
   // The branch target is always the last operand.
   int NumOp = MI.getNumExplicitOperands();
@@ -386,44 +361,28 @@ CeespuInstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
 }
 
 bool CeespuInstrInfo::isBranchOffsetInRange(unsigned BranchOp,
-                                           int64_t BrOffset) const {
+                                            int64_t BrOffset) const {
   // Ideally we could determine the supported branch offset from the
   // CeespuII::FormMask, but this can't be used for Pseudo instructions like
   // PseudoBR.
-  switch (BranchOp) {
-  default:
-    llvm_unreachable("Unexpected opcode!");
-  case Ceespu::BEQ:
-  case Ceespu::BNE:
-  case Ceespu::BLT:
-  case Ceespu::BGE:
-  case Ceespu::BLTU:
-  case Ceespu::BGEU:
-    return isIntN(13, BrOffset);
-  case Ceespu::JAL:
-  case Ceespu::PseudoBR:
-    return isIntN(21, BrOffset);
-  }
+  return true;
 }
 
 unsigned CeespuInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   unsigned Opcode = MI.getOpcode();
 
   switch (Opcode) {
-  default: { return get(Opcode).getSize(); }
-  case TargetOpcode::EH_LABEL:
-  case TargetOpcode::IMPLICIT_DEF:
-  case TargetOpcode::KILL:
-  case TargetOpcode::DBG_VALUE:
-    return 0;
-  case Ceespu::PseudoCALL:
-  case Ceespu::PseudoTAIL:
-    return 8;
-  case TargetOpcode::INLINEASM: {
-    const MachineFunction &MF = *MI.getParent()->getParent();
-    const auto &TM = static_cast<const CeespuTargetMachine &>(MF.getTarget());
-    return getInlineAsmLength(MI.getOperand(0).getSymbolName(),
-                              *TM.getMCAsmInfo());
-  }
+    default: { return get(Opcode).getSize(); }
+    case TargetOpcode::EH_LABEL:
+    case TargetOpcode::IMPLICIT_DEF:
+    case TargetOpcode::KILL:
+    case TargetOpcode::DBG_VALUE:
+      return 0;
+    case TargetOpcode::INLINEASM: {
+      const MachineFunction &MF = *MI.getParent()->getParent();
+      const auto &TM = static_cast<const CeespuTargetMachine &>(MF.getTarget());
+      return getInlineAsmLength(MI.getOperand(0).getSymbolName(),
+                                *TM.getMCAsmInfo());
+    }
   }
 }

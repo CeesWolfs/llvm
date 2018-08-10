@@ -30,7 +30,7 @@ def OPC_SHF     : CeespuOpcode<0b001000>;
 def OPC_SHFI    : CeespuOpcode<0b011000>;
 def OPC_MUL     : CeespuOpcode<0b001001>;
 def OPC_MULI    : CeespuOpcode<0b011001>;
-def OPC_SETHI   : CeespuOpcode<0b101010>;
+def OPC_SETI    : CeespuOpcode<0b101010>;
 def OPC_LW      : CeespuOpcode<0b100000>;
 def OPC_LH      : CeespuOpcode<0b100001>;
 def OPC_LHU     : CeespuOpcode<0b100011>;
@@ -47,6 +47,27 @@ def OPC_BG      : CeespuOpcode<0b111100>;
 def OPC_BGE     : CeespuOpcode<0b111101>;
 def OPC_BC      : CeespuOpcode<0b111110>;
 def OPC_JMP     : CeespuOpcode<0b111111>;
+
+/*class InstCeespuExt<CeespuOpcode opc, dag outs, dag ins, string opcstr, list<dag> pattern> : Instruction {
+  field bits<64> Inst;
+  let Namespace = "Ceespu";
+  dag OutOperandList = outs;
+  dag InOperandList = ins;
+  let AsmString   = "seti\t" # "$immhi"  # "\n" # opcstr # "\t$rd, $ra, $immlo";
+  let Pattern = pattern;
+  let Size = 4;
+  bits<5> rd;
+  bits<5> ra;
+  bits<32> imm;
+  bits<16> immhi = imm{31-16};
+  bits<16> immlo = imm{15-0};
+  let Inst{63-58} = OPC_SETI.Value;
+  let Inst{47-32} = immhi;
+  let Inst{31-26} = opc.Value;
+  let Inst{25-21} = rd;
+  let Inst{20-16} = ra;
+  let Inst{15-0}  = immlo;
+}*/
 
 class InstCeespu<CeespuOpcode opc, dag outs, dag ins, string opcstr, string argstr,  list<dag> pattern>
     : Instruction {
@@ -113,12 +134,12 @@ class CeespuB1<CeespuOpcode opc, dag outs, dag ins, string opcstr, string argstr
 {
   bits<5> ra;
   bits<5> rb;
-  bits<16> imm;
+  bits<16> BrDst;
 
-  let Inst{25-21} = imm{15-11};
+  let Inst{25-21} = BrDst{15-11};
   let Inst{20-16} = ra;
   let Inst{15-11} = rb;
-  let Inst{10-0}  = imm{10-0};
+  let Inst{10-0}  = BrDst{10-0};
 }
 
 // Type B2 instruction (opcode imm)
@@ -137,5 +158,5 @@ class Pseudo<dag outs, dag ins, string opcstr="", string argstr="", list<dag> pa
   dag InOperandList = ins;
   let AsmString   = opcstr # "\t" # argstr;
   let Pattern = pattern;
-  let Size = 4;
+  let Size = 8;
   }

@@ -34,7 +34,7 @@ using namespace llvm;
 
 namespace {
 class CeespuAsmPrinter : public AsmPrinter {
-public:
+ public:
   explicit CeespuAsmPrinter(TargetMachine &TM,
                             std::unique_ptr<MCStreamer> Streamer)
       : AsmPrinter(TM, std::move(Streamer)) {}
@@ -59,16 +59,7 @@ public:
     return LowerCeespuMachineOperandToMCOperand(MO, MCOp, *this);
   }
 };
-} // namespace
-
-#define GEN_COMPRESS_INSTR
-#include "CeespuGenCompressInstEmitter.inc"
-void CeespuAsmPrinter::EmitToStreamer(MCStreamer &S, const MCInst &Inst) {
-  MCInst CInst;
-  bool Res = compressInst(CInst, Inst, *TM.getMCSubtargetInfo(),
-                          OutStreamer->getContext());
-  AsmPrinter::EmitToStreamer(*OutStreamer, Res ? CInst : Inst);
-}
+}  // namespace
 
 // Simple pseudo-instructions have their lowering (with expansion to real
 // instructions) auto-generated.
@@ -76,8 +67,7 @@ void CeespuAsmPrinter::EmitToStreamer(MCStreamer &S, const MCInst &Inst) {
 
 void CeespuAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   // Do any auto-generated pseudo lowerings.
-  if (emitPseudoExpansionLowering(*OutStreamer, MI))
-    return;
+  if (emitPseudoExpansionLowering(*OutStreamer, MI)) return;
 
   MCInst TmpInst;
   LowerCeespuMachineInstrToMCInst(MI, TmpInst, *this);
@@ -97,17 +87,17 @@ bool CeespuAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
   if (!ExtraCode) {
     const MachineOperand &MO = MI->getOperand(OpNo);
     switch (MO.getType()) {
-    case MachineOperand::MO_GlobalAddress:
-      OS << MO.getGlobal();
-      return false;
-    case MachineOperand::MO_Immediate:
-      OS << MO.getImm();
-      return false;
-    case MachineOperand::MO_Register:
-      OS << CeespuInstPrinter::getRegisterName(MO.getReg());
-      return false;
-    default:
-      break;
+      case MachineOperand::MO_GlobalAddress:
+        OS << MO.getGlobal();
+        return false;
+      case MachineOperand::MO_Immediate:
+        OS << MO.getImm();
+        return false;
+      case MachineOperand::MO_Register:
+        OS << CeespuInstPrinter::getRegisterName(MO.getReg());
+        return false;
+      default:
+        break;
     }
   }
 
@@ -123,20 +113,20 @@ bool CeespuAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 
   if (!ExtraCode) {
     const MachineOperand &MO = MI->getOperand(OpNo);
-    
+
     if (MO.isGlobal()) {
-        OS << MO.getGlobal();
-        return false;
+      OS << MO.getGlobal();
+      return false;
     }
-    
+
     // For now, we only support register memory operands in registers and
     // assume there is no addend
     if (MO.isImm()) {
       OS << MO.getImm();
       return true;
     }
-    
-    if(!MO.isReg()) return true;
+
+    if (!MO.isReg()) return true;
 
     OS << "(" << CeespuInstPrinter::getRegisterName(MO.getReg()) << ")";
     return false;

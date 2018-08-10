@@ -37,8 +37,6 @@ def Ceespucallseq_start: SDNode<"ISD::CALLSEQ_START", SDT_CeespuCallSeqStart,
                              [SDNPHasChain, SDNPOutGlue]>;
 def Ceespucallseq_end  : SDNode<"ISD::CALLSEQ_END",   SDT_CeespuCallSeqEnd,
                              [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
-def Ceespubrcc         : SDNode<"CeespuISD::BR_CC", SDT_CeespuBrCC,
-                             [SDNPHasChain, SDNPOutGlue, SDNPInGlue]>;
 
 def Ceespuselectcc     : SDNode<"CeespuISD::SELECT_CC", SDT_CeespuSelectCC, [SDNPInGlue]>;
 def CeespuWrapper      : SDNode<"CeespuISD::Wrapper", SDT_CeespuWrapper>;
@@ -57,7 +55,10 @@ def HI16 : SDNodeXForm<imm, [{
 }]>;
 
 
-def brtarget : Operand<OtherVT>;
+def brtarget : Operand<OtherVT> {
+  let PrintMethod = "printBrTargetOperand";
+}
+
 def calltarget : Operand<i16>;
 
 def u32imm   : Operand<i32> {
@@ -82,25 +83,11 @@ def MEMri : Operand<i32> {
   let MIOperandInfo = (ops GPR, i16imm);
 }
 
-// Conditional code predicates - used for pattern matching for jump instructions
-def Ceespu_CC_EQ  : PatLeaf<(imm),
-                         [{return (N->getZExtValue() == ISD::SETEQ);}]>;
-def Ceespu_CC_NE  : PatLeaf<(imm),
-                         [{return (N->getZExtValue() == ISD::SETNE);}]>;
-def Ceespu_CC_GE  : PatLeaf<(imm),
-                         [{return (N->getZExtValue() == ISD::SETGE);}]>;
-def Ceespu_CC_GT  : PatLeaf<(imm),
-                         [{return (N->getZExtValue() == ISD::SETGT);}]>;
-def Ceespu_CC_GTU : PatLeaf<(imm),
-                         [{return (N->getZExtValue() == ISD::SETUGT);}]>;
-def Ceespu_CC_GEU : PatLeaf<(imm),
-                         [{return (N->getZExtValue() == ISD::SETUGE);}]>;
-
 // jump instructions
-class BRANCH_COND<CeespuOpcode opc, string opcstr, PatLeaf Cond>
-    : CeespuB1<opc, (outs), (ins GPR:$ra, GPR:$rb, brtarget:$imm),
-              opcstr, "$ra, $rb, $imm",
-              [(Ceespubrcc i32:$ra, i32:$rb, Cond, brtarget:$imm)]> {
+class BRANCH_COND<CeespuOpcode opc, string opcstr, PatFrag Cond>
+    : CeespuB1<opc, (outs), (ins GPR:$ra, GPR:$rb, brtarget:$BrDst),
+              opcstr, "$ra, $rb, $BrDst",
+              [(brcond (i32 (Cond GPR:$ra, GPR:$rb)), bb:$BrDst)]> {
 }
 
 class CALL
@@ -127,17 +114,26 @@ class BRANCHR
 
 let isBranch = 1, isTerminator= 1, hasDelaySlot=0 in {
 // branch instructions
-def BEQ  : BRANCH_COND<OPC_BEQ,  "beq",  Ceespu_CC_EQ>;
-def BGU  : BRANCH_COND<OPC_BGU,  "bgu", Ceespu_CC_GTU>;
-def BGEU : BRANCH_COND<OPC_BGEU, "bgeu", Ceespu_CC_GEU>;
-def BNE  : BRANCH_COND<OPC_BNE,  "bne",  Ceespu_CC_NE>;
-def BGT  : BRANCH_COND<OPC_BG,   "bg", Ceespu_CC_GT>;
-def BGE  : BRANCH_COND<OPC_BGE,  "bge", Ceespu_CC_GE>;
+def BEQ  : BRANCH_COND<OPC_BEQ,  "beq",  seteq>;
+def BGU  : BRANCH_COND<OPC_BGU,  "bgu",  setugt>;
+def BGEU : BRANCH_COND<OPC_BGEU, "bgeu", setuge>;
+def BNE  : BRANCH_COND<OPC_BNE,  "bne",  setne>;
+def BGT  : BRANCH_COND<OPC_BG,   "bg",   setgt>;
+def BGE  : BRANCH_COND<OPC_BGE,  "bge",  setge>;
 }
+
+def : Pat<(brcond (i32 (setlt GPR:$ra, GPR:$rb)), bb:$BrDst),  (BGE GPR:$rb, GPR:$ra, bb:$BrDst)>;
+def : Pat<(brcond (i32 (setult GPR:$ra, GPR:$rb)), bb:$BrDst), (BGEU GPR:$rb, GPR:$ra, bb:$BrDst)>;
+def : Pat<(brcond (i32 (setle GPR:$ra, GPR:$rb)), bb:$BrDst),  (BGT GPR:$rb, GPR:$ra, bb:$BrDst)>;
+def : Pat<(brcond (i32 (setule GPR:$ra, GPR:$rb)), bb:$BrDst), (BGU GPR:$rb, GPR:$ra, bb:$BrDst)>;
+
+// An extra pattern is needed for a brcond without a setcc (i.e. where the
+// condition was calculated elsewhere).
+def : Pat<(brcond GPR:$cond, bb:$BrDst), (BNE GPR:$cond, R0, bb:$BrDst)>;
 
 // Jump always
 let isBranch = 1, isTerminator = 1, hasDelaySlot=0, isBarrier = 1 in {
-  def JMP : CeespuB2<OPC_JMP, (outs), (ins brtarget:$imm), "b", "$imm" , [(br brtarget:$imm)]>;
+  def JMP : CeespuB2<OPC_JMP, (outs), (ins brtarget:$BrDst), "b", "$BrDst" , [(br bb:$BrDst)]>;
 }
 
 // Jump and link
@@ -155,7 +151,7 @@ class ALU_RI<CeespuOpcode opc, string opcstr, SDNode OpNode>
 
 // Extended immidiate ALU instructions
 class ALU_RI_EXT<CeespuOpcode opc, string opcstr, SDNode OpNode>
-    : InstCeespuExt<opc, (outs GPR:$rd), (ins GPR:$ra, i32:$imm),
+    : Pseudo<(outs GPR:$rd), (ins GPR:$ra, i32imm:$imm),
               opcstr, [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
 }
 
@@ -220,6 +216,18 @@ let isAsCheapAsAMove = 1 in {
 }
   def MULI : ALU_RI<OPC_MUL, "muli", mul>;
 
+// define instruction with 32 bit immidiates as pseudo instructions,
+// they will later be lowered to SETHI, INST pairs
+  def ADDX : ALU_RI_EXT<OPC_ADD, "addi", add>; 
+  def ADCX : ALU_RI_EXT<OPC_ADC, "adci", adde>;
+  def ADEX : ALU_RI_EXT<OPC_ADD, "addi", addc>;
+  def SUBX : ALU_RI_EXT<OPC_SUB, "subi", sub>;
+  def SBBX : ALU_RI_EXT<OPC_SUB, "subi", subc>;
+  def SBEX : ALU_RI_EXT<OPC_SUB, "sbbi", sube>;
+  def ORX  : ALU_RI_EXT<OPC_OR , "ori",  or>;
+  def ANDX : ALU_RI_EXT<OPC_AND, "andi", and>;
+  def XORX : ALU_RI_EXT<OPC_XOR, "xori", xor>;
+  def MULX : ALU_RI_EXT<OPC_MUL, "muli", mul>;
 
 def MOV : InstAlias<"mov $rd, $ra", (ADDI GPR:$rd, GPR:$ra, 0)>;
 def NOP : InstAlias<"nop", (ADD R1, R1, R0)>;
@@ -234,13 +242,13 @@ def SEXT16 : CeespuA2<OPC_SE, (outs GPR:$rd), (ins GPR:$ra),
               }
 def SETHI : CeespuB2<OPC_SETI, (outs), (ins i16imm:$imm), "seti", "$imm", []>;
 
-def FI_ri
+/*def FI_ri
     : Pseudo<(outs GPR:$rd), (ins MEMri:$addr),
                "lea", "$rd, $addr",
                [(set i32:$rd, FIri:$addr)]> {
   // This is a tentative instruction, and will be replaced
   // with MOV_rr and ADD_ri in PEI phase
-}
+}*/
 
 // STORE instructions
 class STORE<CeespuOpcode opc, string opcstr, PatFrag OpNode>
@@ -254,7 +262,7 @@ def SW : STORE<OPC_SW, "sw", store>;
 
 // LOAD instructions
 class LOAD<CeespuOpcode opc, string opcstr, PatFrag OpNode>
-    : CeespuB1<opc, (outs GPR:$rd), (ins MEMri:$addr),
+    : CeespuB0<opc, (outs GPR:$rd), (ins MEMri:$addr),
               opcstr, "$rd, $addr", [(set i32:$rd, (OpNode ADDR:$addr))]>; 
 
 
@@ -291,11 +299,11 @@ let usesCustomInserter = 1 in {
 def : Pat<(i32 0), (i32 R0)>;
 
 // Arbitrary immediates
-def : Pat<(i32 imm:$imm), (ORI (SETHI (HI16 imm:$imm)),(LO16 imm:$imm))>;
+// def : Pat<(i32 imm:$imm), (ORI (SETHI (HI16 imm:$imm)),(LO16 imm:$imm))>;
 
-//define not as xor with all zeros
+//define not as xor with all ones
 def : Pat<(not GPR:$rd),
- (XORI GPR:$rd, GPR:$rd, -1)>;
+ (XORI GPR:$rd, -1)>;
 
 // 0xffff doesn't fit into simm16, optimize common case
 def : Pat<(i32 (and (i32 GPR:$ra), 0xffff)),

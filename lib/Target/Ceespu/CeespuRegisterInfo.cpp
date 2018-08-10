@@ -1,4 +1,5 @@
-//===-- CeespuRegisterInfo.cpp - Ceespu Register Information ------*- C++ -*-===//
+//===-- CeespuRegisterInfo.cpp - Ceespu Register Information ------*- C++
+//-*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -28,11 +29,11 @@
 using namespace llvm;
 
 CeespuRegisterInfo::CeespuRegisterInfo(unsigned HwMode)
-    : CeespuGenRegisterInfo(Ceespu::R1, /*DwarfFlavour*/0, /*EHFlavor*/0,
-                           /*PC*/0, HwMode) {}
+    : CeespuGenRegisterInfo(Ceespu::R1, /*DwarfFlavour*/ 0, /*EHFlavor*/ 0,
+                            /*PC*/ 0, HwMode) {}
 
-const MCPhysReg *
-CeespuRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
+const MCPhysReg *CeespuRegisterInfo::getCalleeSavedRegs(
+    const MachineFunction *MF) const {
   return CSR_SaveList;
 }
 
@@ -40,11 +41,11 @@ BitVector CeespuRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
 
   // Use markSuperRegs to ensure any register aliases are also reserved
-  markSuperRegs(Reserved, Ceespu::R0); // zero register
-  markSuperRegs(Reserved, Ceespu::R17); // interrupt register
-  markSuperRegs(Reserved, Ceespu::SP); // stack pointer
-  markSuperRegs(Reserved, Ceespu::LR); // link register
-  markSuperRegs(Reserved, Ceespu::FP); // frame pointer
+  markSuperRegs(Reserved, Ceespu::R0);   // zero register
+  markSuperRegs(Reserved, Ceespu::R17);  // interrupt register
+  markSuperRegs(Reserved, Ceespu::SP);   // stack pointer
+  markSuperRegs(Reserved, Ceespu::LR);   // link register
+  markSuperRegs(Reserved, Ceespu::FP);   // frame pointer
   assert(checkAllSuperRegsMarked(Reserved));
   return Reserved;
 }
@@ -58,14 +59,15 @@ const uint32_t *CeespuRegisterInfo::getNoPreservedMask() const {
 }
 
 void CeespuRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                            int SPAdj, unsigned FIOperandNum,
-                                            RegScavenger *RS) const {
+                                             int SPAdj, unsigned FIOperandNum,
+                                             RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unexpected non-zero SPAdj value");
 
   MachineInstr &MI = *II;
   MachineFunction &MF = *MI.getParent()->getParent();
   MachineRegisterInfo &MRI = MF.getRegInfo();
-  const CeespuInstrInfo *TII = MF.getSubtarget<CeespuSubtarget>().getInstrInfo();
+  const CeespuInstrInfo *TII =
+      MF.getSubtarget<CeespuSubtarget>().getInstrInfo();
   DebugLoc DL = MI.getDebugLoc();
 
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
@@ -82,13 +84,13 @@ void CeespuRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineBasicBlock &MBB = *MI.getParent();
   bool FrameRegIsKill = false;
 
-  if (!isInt<12>(Offset)) {
+  if (!isInt<16>(Offset)) {
     assert(isInt<32>(Offset) && "Int32 expected");
     // The offset won't fit in an immediate, so use a scratch register instead
     // Modify Offset and FrameReg appropriately
     unsigned ScratchReg = MRI.createVirtualRegister(&Ceespu::GPRRegClass);
     TII->movImm32(MBB, II, DL, ScratchReg, Offset);
-    BuildMI(MBB, II, DL, TII->get(Ceespu::ADD_rr), ScratchReg)
+    BuildMI(MBB, II, DL, TII->get(Ceespu::ADD), ScratchReg)
         .addReg(FrameReg)
         .addReg(ScratchReg, RegState::Kill);
     Offset = 0;
@@ -106,8 +108,7 @@ unsigned CeespuRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   return TFI->hasFP(MF) ? Ceespu::FP : Ceespu::SP;
 }
 
-const uint32_t *
-CeespuRegisterInfo::getCallPreservedMask(const MachineFunction & /*MF*/,
-                                        CallingConv::ID /*CC*/) const {
+const uint32_t *CeespuRegisterInfo::getCallPreservedMask(
+    const MachineFunction & /*MF*/, CallingConv::ID /*CC*/) const {
   return CSR_RegMask;
 }

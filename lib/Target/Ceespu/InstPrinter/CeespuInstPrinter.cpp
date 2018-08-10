@@ -1,4 +1,5 @@
-//===-- CeespuInstPrinter.cpp - Convert Ceespu MCInst to asm syntax ---------===//
+//===-- CeespuInstPrinter.cpp - Convert Ceespu MCInst to asm syntax
+//---------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -32,24 +33,21 @@ using namespace llvm;
 #include "CeespuGenAsmWriter.inc"
 
 // Include the auto-generated portion of the compress emitter.
-#define GEN_UNCOMPRESS_INSTR
+//#define GEN_UNCOMPRESS_INSTR
 //#include "CeespuGenCompressInstEmitter.inc"
 
-static cl::opt<bool>
-NoAliases("ceespu-no-aliases",
-            cl::desc("Disable the emission of assembler pseudo instructions"),
-            cl::init(false),
-            cl::Hidden);
+static cl::opt<bool> NoAliases(
+    "ceespu-no-aliases",
+    cl::desc("Disable the emission of assembler pseudo instructions"),
+    cl::init(false), cl::Hidden);
 
 void CeespuInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                                 StringRef Annot, const MCSubtargetInfo &STI) {
+                                  StringRef Annot, const MCSubtargetInfo &STI) {
   bool Res = false;
   const MCInst *NewMI = MI;
   MCInst UncompressedMI;
-  if (!NoAliases)
-    Res = uncompressInst(UncompressedMI, *MI, MRI, STI);
-  if (Res)
-    NewMI = const_cast<MCInst*>(&UncompressedMI);
+  if (!NoAliases) Res = uncompressInst(UncompressedMI, *MI, MRI, STI);
+  if (Res) NewMI = const_cast<MCInst *>(&UncompressedMI);
   if (NoAliases || !printAliasInstr(NewMI, STI, O))
     printInstruction(NewMI, STI, O);
   printAnnotation(O, Annot);
@@ -60,8 +58,8 @@ void CeespuInstPrinter::printRegName(raw_ostream &O, unsigned RegNo) const {
 }
 
 void CeespuInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                    const MCSubtargetInfo &STI,
-                                    raw_ostream &O, const char *Modifier) {
+                                     const MCSubtargetInfo &STI, raw_ostream &O,
+                                     const char *Modifier) {
   assert((Modifier == 0 || Modifier[0] == 0) && "No modifiers supported");
   const MCOperand &MO = MI->getOperand(OpNo);
 
@@ -79,24 +77,17 @@ void CeespuInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   MO.getExpr()->print(O, &MAI);
 }
 
-void CeespuInstPrinter::printFenceArg(const MCInst *MI, unsigned OpNo,
-                                     const MCSubtargetInfo &STI,
-                                     raw_ostream &O) {
-  unsigned FenceArg = MI->getOperand(OpNo).getImm();
-  if ((FenceArg & CeespuFenceField::I) != 0)
-    O << 'i';
-  if ((FenceArg & CeespuFenceField::O) != 0)
-    O << 'o';
-  if ((FenceArg & CeespuFenceField::R) != 0)
-    O << 'r';
-  if ((FenceArg & CeespuFenceField::W) != 0)
-    O << 'w';
-}
+void CeespuInstPrinter::printMemOperand(const MCInst *MI, int OpNo,
+                                        raw_ostream &O, const char *Modifier) {
+  const MCOperand &RegOp = MI->getOperand(OpNo);
+  const MCOperand &OffsetOp = MI->getOperand(OpNo + 1);
+  // offset
+  if (OffsetOp.isImm())
+    O << formatDec(OffsetOp.getImm());
+  else
+    assert(0 && "Expected an immediate");
 
-void CeespuInstPrinter::printFRMArg(const MCInst *MI, unsigned OpNo,
-                                   const MCSubtargetInfo &STI,
-                                   raw_ostream &O) {
-  auto FRMArg =
-      static_cast<CeespuFPRndMode::RoundingMode>(MI->getOperand(OpNo).getImm());
-  O << CeespuFPRndMode::roundingModeToString(FRMArg);
+  // register
+  assert(RegOp.isReg() && "Register operand not a register");
+  O << '(' << getRegisterName(RegOp.getReg()) << ')';
 }
