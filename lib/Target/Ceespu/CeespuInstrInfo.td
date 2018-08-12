@@ -55,9 +55,7 @@ def HI16 : SDNodeXForm<imm, [{
 }]>;
 
 
-def brtarget : Operand<OtherVT> {
-  let PrintMethod = "printBrTargetOperand";
-}
+def brtarget : Operand<OtherVT>;
 
 def calltarget : Operand<i16>;
 
@@ -65,8 +63,8 @@ def u32imm   : Operand<i32> {
   let PrintMethod = "printImm32Operand";
 }
 
-def i32immSExt16 : Operand<i32>, PatLeaf<(imm),
-                [{return isInt<16>(N->getSExtValue()); }]>;
+def i32immSExt16 : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
+
 
 def u5imm : Operand<i32>, ImmLeaf<i32, [{return isUInt<5>(Imm);}]> {
   let DecoderMethod = "decodeUImmOperand<5>";
@@ -104,6 +102,8 @@ class CALLR
   let Inst{1-0} = 0b11;
 }
 
+
+
 class BRANCHR
     : CeespuA2<OPC_JMP, (outs), (ins GPR:$ra),
               "bx", "$ra",
@@ -111,6 +111,14 @@ class BRANCHR
   let Inst{1} = 1;
 }
 
+class RET : InstCeespu<OPC_JMP, (outs), (ins), "bx", "clr", [(Ceespuretflag)]> {
+  let Inst{1} = 1;
+}
+
+let isReturn = 1, isTerminator = 1, hasDelaySlot=0, isBarrier = 1, Uses = [LR], 
+    isNotDuplicable = 1 in {
+  def RET : RET;
+}
 
 let isBranch = 1, isTerminator= 1, hasDelaySlot=0 in {
 // branch instructions
@@ -136,6 +144,7 @@ let isBranch = 1, isTerminator = 1, hasDelaySlot=0, isBarrier = 1 in {
   def JMP : CeespuB2<OPC_JMP, (outs), (ins brtarget:$BrDst), "b", "$BrDst" , [(br bb:$BrDst)]>;
 }
 
+
 // Jump and link
 let isCall=1, hasDelaySlot=0, Defs = [FP, LR, R20, R21, R22, R23, R24, R25, R13, R14, R15, R26, R27, R28, R29, R30, R31] in {
   def JAL  : CALL;
@@ -144,21 +153,21 @@ let isCall=1, hasDelaySlot=0, Defs = [FP, LR, R20, R21, R22, R23, R24, R25, R13,
 
 // ALU instructions
 class ALU_RI<CeespuOpcode opc, string opcstr, SDNode OpNode>
-    : CeespuB0<opc, (outs GPR:$rd), (ins GPR:$ra, i32immSExt16:$imm),
+    : CeespuB0<opc, (outs GPR:$rd), (ins GPR:$ra, i32imm:$imm),
               opcstr, "$rd, $ra, $imm",
-              [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
+              [(set GPR:$rd, (OpNode GPR:$ra, i32immSExt16:$imm))]> {
 }
 
 // Extended immidiate ALU instructions
 class ALU_RI_EXT<CeespuOpcode opc, string opcstr, SDNode OpNode>
-    : Pseudo<(outs GPR:$rd), (ins GPR:$ra, i32imm:$imm),
-              opcstr, [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
+    : Pseudo<(outs GPR:$rd), (ins GPR:$ra, i32imm:$imm), "opcstr", "$rd, $ra, $imm",
+              [(set GPR:$rd, (OpNode GPR:$ra, imm:$imm))]> {
 }
 
 class ALU_RR<CeespuOpcode opc, string opcstr, SDNode OpNode>
     : CeespuA0<opc, (outs GPR:$rd), (ins GPR:$rb, GPR:$ra),
               opcstr, "$rd, $ra, $rb",
-              [(set GPR:$rd, (OpNode GPR:$rb, GPR:$ra))]> {
+              [(set GPR:$rd, (OpNode GPR:$ra, GPR:$rb))]> {
 
 }
 
@@ -293,11 +302,15 @@ let usesCustomInserter = 1 in {
 }
 
 // load global addr into register
-//def : Pat<(CeespuWrapper tglobaladdr:$in), (MOV_ri tglobaladdr:$in)>;
+def : Pat<(CeespuWrapper tglobaladdr:$in), (ORX R0,  tglobaladdr:$in)>;
+// load global addr into register
+def : Pat<(CeespuWrapper texternalsym:$in), (ORX R0,  texternalsym:$in)>;
 
 // Zero immidiate
 def : Pat<(i32 0), (i32 R0)>;
 
+def : Pat<(i32 imm:$imm), (ORX R0 ,imm:$imm)>;
+//def : Pat
 // Arbitrary immediates
 // def : Pat<(i32 imm:$imm), (ORI (SETHI (HI16 imm:$imm)),(LO16 imm:$imm))>;
 
@@ -311,7 +324,7 @@ def : Pat<(i32 (and (i32 GPR:$ra), 0xffff)),
 
 // Calls
 def : Pat<(Ceespucall tglobaladdr:$rd), (JAL tglobaladdr:$rd)>;
-//def : Pat<(Ceespucall imm:$rd), (JAL imm:$rd)>;
+def : Pat<(Ceespucall texternalsym:$rd), (JAL texternalsym:$rd)>;
 
 // Loads
 def : Pat<(extloadi8  tglobaladdr:$ra), (i32 (LB ADDR:$ra))>;

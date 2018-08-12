@@ -17,11 +17,13 @@
 #define LLVM_LIB_TARGET_Ceespu_CeespuISELLOWERING_H
 
 #include "Ceespu.h"
+#include "CeespuMachineFunctionInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLowering.h"
 
 namespace llvm {
 class CeespuSubtarget;
+class CeespuMachineFunctionInfo;
 namespace CeespuISD {
 enum NodeType : unsigned {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
@@ -78,10 +80,28 @@ class CeespuTargetLowering : public TargetLowering {
                                const SmallVectorImpl<ISD::InputArg> &Ins,
                                const SDLoc &DL, SelectionDAG &DAG,
                                SmallVectorImpl<SDValue> &InVals) const override;
-  bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
+  SDValue LowerCCCArguments(SDValue Chain, CallingConv::ID CallConv,
+                            bool IsVarArg,
+                            const SmallVectorImpl<ISD::InputArg> &Ins,
+                            const SDLoc &DL, SelectionDAG &DAG,
+                            SmallVectorImpl<SDValue> &InVals) const;
+  SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
+                          CallingConv::ID CallConv, bool IsVarArg,
+                          const SmallVectorImpl<ISD::InputArg> &Ins,
+                          const SDLoc &DL, SelectionDAG &DAG,
+                          SmallVectorImpl<SDValue> &InVals) const;
+  SDValue LowerCCCCallTo(SDValue Chain, SDValue Callee,
+                         CallingConv::ID CallConv, bool IsVarArg,
+                         bool /*IsTailCall*/,
+                         const SmallVectorImpl<ISD::OutputArg> &Outs,
+                         const SmallVectorImpl<SDValue> &OutVals,
+                         const SmallVectorImpl<ISD::InputArg> &Ins,
+                         const SDLoc &DL, SelectionDAG &DAG,
+                         SmallVectorImpl<SDValue> &InVals) const;
+  /*bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                       bool IsVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
-                      LLVMContext &Context) const override;
+                      LLVMContext &Context) const override;*/
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,

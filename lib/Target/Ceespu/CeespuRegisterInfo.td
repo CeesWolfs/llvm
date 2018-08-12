@@ -33,7 +33,7 @@ def R12 : CeespuReg< 12, "c12">;
 def R13 : CeespuReg< 13, "c13">;
 def R14 : CeespuReg< 14, "c14">;
 def R15 : CeespuReg< 15, "c15">;
-def FP  : CeespuReg< 16, "c16">;
+def FP  : CeespuReg< 16, "cfp">;
 def R17 : CeespuReg< 17, "cir">;
 def SP  : CeespuReg< 18, "csp">;
 def LR  : CeespuReg< 19, "clr">;

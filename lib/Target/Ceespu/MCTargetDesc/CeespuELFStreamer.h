@@ -1,4 +1,5 @@
-//===-- CeespuELFStreamer.h - Ceespu ELF Target Streamer ---------*- C++ -*--===//
+//===-- CeespuELFStreamer.h - Ceespu ELF Target Streamer ---------*- C++
+//-*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -16,12 +17,12 @@
 namespace llvm {
 
 class CeespuTargetELFStreamer : public CeespuTargetStreamer {
-public:
+ public:
   MCELFStreamer &getStreamer();
   CeespuTargetELFStreamer(MCStreamer &S, const MCSubtargetInfo &STI);
 
   virtual void emitDirectiveOptionRVC();
   virtual void emitDirectiveOptionNoRVC();
 };
-}
+}  // namespace llvm
 #endif

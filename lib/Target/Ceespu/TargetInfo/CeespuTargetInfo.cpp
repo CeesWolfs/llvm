@@ -24,8 +24,8 @@ Target &getTheCeespuebTarget() {
 }  // namespace llvm
 
 extern "C" void LLVMInitializeCeespuTargetInfo() {
-  RegisterTarget<Triple::Ceespu> X(getTheCeespuTarget(), "ceespu",
+  RegisterTarget<Triple::ceespu> X(getTheCeespuTarget(), "ceespu",
                                    "Ceespu (host endian)", "Ceespu");
-  RegisterTarget<Triple::Ceespueb> Y(getTheCeespuebTarget(), "ceespu",
+  RegisterTarget<Triple::ceespueb> Y(getTheCeespuebTarget(), "ceespu",
                                      "Ceespu (big endian)", "Ceespu");
 }

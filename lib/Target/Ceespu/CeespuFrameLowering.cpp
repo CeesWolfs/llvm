@@ -61,7 +61,7 @@ void CeespuFrameLowering::adjustReg(MachineBasicBlock &MBB,
 
   if (DestReg == SrcReg && Val == 0) return;
 
-  if (isInt<12>(Val)) {
+  if (isInt<16>(Val)) {
     BuildMI(MBB, MBBI, DL, TII->get(Ceespu::ADDI), DestReg)
         .addReg(SrcReg)
         .addImm(Val)
@@ -86,7 +86,7 @@ void CeespuFrameLowering::adjustReg(MachineBasicBlock &MBB,
 }
 
 // Returns the register used to hold the frame pointer.
-static unsigned getFPReg(const CeespuSubtarget &STI) { return Ceespu::R17; }
+static unsigned getFPReg(const CeespuSubtarget &STI) { return Ceespu::FP; }
 
 // Returns the register used to hold the stack pointer.
 static unsigned getSPReg(const CeespuSubtarget &STI) { return Ceespu::SP; }
@@ -130,8 +130,7 @@ void CeespuFrameLowering::emitPrologue(MachineFunction &MF,
 
   // Generate new FP.
   if (hasFP(MF))
-    adjustReg(MBB, MBBI, DL, FPReg, SPReg,
-              StackSize - RVFI->getVarArgsSaveSize(), MachineInstr::FrameSetup);
+    adjustReg(MBB, MBBI, DL, FPReg, SPReg, StackSize, MachineInstr::FrameSetup);
 }
 
 void CeespuFrameLowering::emitEpilogue(MachineFunction &MF,
@@ -158,7 +157,7 @@ void CeespuFrameLowering::emitEpilogue(MachineFunction &MF,
   if (RI->needsStackRealignment(MF) || MFI.hasVarSizedObjects()) {
     assert(hasFP(MF) && "frame pointer should not have been eliminated");
     adjustReg(MBB, LastFrameDestroy, DL, SPReg, FPReg,
-              -StackSize + RVFI->getVarArgsSaveSize(),
+              -StackSize + 0,  // RVFI->getVarArgsSaveSize(),
               MachineInstr::FrameDestroy);
   }
 
@@ -194,7 +193,7 @@ int CeespuFrameLowering::getFrameIndexReference(const MachineFunction &MF,
   } else {
     FrameReg = RI->getFrameRegister(MF);
     if (hasFP(MF))
-      Offset += RVFI->getVarArgsSaveSize();
+      Offset += 0;  // RVFI->getVarArgsSaveSize();
     else
       Offset += MF.getFrameInfo().getStackSize();
   }

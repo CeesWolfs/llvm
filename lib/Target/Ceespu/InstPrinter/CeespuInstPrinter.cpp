@@ -43,13 +43,7 @@ static cl::opt<bool> NoAliases(
 
 void CeespuInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                   StringRef Annot, const MCSubtargetInfo &STI) {
-  bool Res = false;
-  const MCInst *NewMI = MI;
-  MCInst UncompressedMI;
-  if (!NoAliases) Res = uncompressInst(UncompressedMI, *MI, MRI, STI);
-  if (Res) NewMI = const_cast<MCInst *>(&UncompressedMI);
-  if (NoAliases || !printAliasInstr(NewMI, STI, O))
-    printInstruction(NewMI, STI, O);
+  printInstruction(MI, O);
   printAnnotation(O, Annot);
 }
 
@@ -58,8 +52,7 @@ void CeespuInstPrinter::printRegName(raw_ostream &O, unsigned RegNo) const {
 }
 
 void CeespuInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                     const MCSubtargetInfo &STI, raw_ostream &O,
-                                     const char *Modifier) {
+                                     raw_ostream &O, const char *Modifier) {
   assert((Modifier == 0 || Modifier[0] == 0) && "No modifiers supported");
   const MCOperand &MO = MI->getOperand(OpNo);
 

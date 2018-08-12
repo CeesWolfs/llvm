@@ -31,10 +31,10 @@ extern "C" void LLVMInitializeCeespuTarget() {
 }
 
 static std::string computeDataLayout(const Triple &TT) {
-  if (TT == getTheCeespuebTarget()) {
-    return "E-m:E-p:16:16:32-i32:32-n32-S32";
+  if (TT.getArch() == Triple::ceespueb) {
+    return "E-m:E-p:32:32:32-i32:32-n32-S32";
   }
-  return "e-m:e-p:16:16:32-i32:32-n32-S32";
+  return "e-m:e-p:32:32:32-i32:32-n32-S32";
 }
 
 static Reloc::Model getEffectiveRelocModel(const Triple &TT,

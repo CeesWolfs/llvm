@@ -19,6 +19,7 @@ add_llvm_target(CeespuCodeGen
   CeespuISelDAGToDAG.cpp
   CeespuISelLowering.cpp
   CeespuMCInstLower.cpp
+  CeespuMachineFunctionInfo.cpp
   CeespuRegisterInfo.cpp
   CeespuSubtarget.cpp
   CeespuTargetMachine.cpp

@@ -1,4 +1,5 @@
-//=- CeespuMachineFunctionInfo.h - Ceespu machine function info -----*- C++ -*-=//
+//===- CeespuMachineFuctionInfo.h - Ceespu machine func info -------*- C++
+//-*-==//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -14,42 +15,45 @@
 #ifndef LLVM_LIB_TARGET_Ceespu_CeespuMACHINEFUNCTIONINFO_H
 #define LLVM_LIB_TARGET_Ceespu_CeespuMACHINEFUNCTIONINFO_H
 
-#include "llvm/CodeGen/MachineFrameInfo.h"
+#include "CeespuRegisterInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
 
 namespace llvm {
 
-/// CeespuMachineFunctionInfo - This class is derived from MachineFunctionInfo
-/// and contains private Ceespu-specific information for each MachineFunction.
+// CeespuMachineFunctionInfo - This class is derived from MachineFunction and
+// contains private Ceespu target-specific information for each MachineFunction.
 class CeespuMachineFunctionInfo : public MachineFunctionInfo {
-private:
+  virtual void anchor();
+
   MachineFunction &MF;
-  /// FrameIndex for start of varargs area
-  int VarArgsFrameIndex = 0;
-  /// Size of the save area used for varargs
-  int VarArgsSaveSize = 0;
-  /// FrameIndex used for transferring values between 64-bit FPRs and a pair
-  /// of 32-bit GPRs via the stack.
-  int MoveF64FrameIndex = -1;
 
-public:
-  //  CeespuMachineFunctionInfo() = default;
+  // SRetReturnReg - Ceespu ABI require that sret lowering includes
+  // returning the value of the returned struct in a register. This field
+  // holds the virtual register into which the sret argument is passed.
+  unsigned SRetReturnReg;
 
-  CeespuMachineFunctionInfo(MachineFunction &MF) : MF(MF) {}
+  // GlobalBaseReg - keeps track of the virtual register initialized for
+  // use as the global base register. This is used for PIC in some PIC
+  // relocation models.
+  unsigned GlobalBaseReg;
+
+  // VarArgsFrameIndex - FrameIndex for start of varargs area.
+  int VarArgsFrameIndex;
+
+ public:
+  explicit CeespuMachineFunctionInfo(MachineFunction &MF)
+      : MF(MF), SRetReturnReg(0), GlobalBaseReg(0), VarArgsFrameIndex(0) {}
+
+  unsigned getSRetReturnReg() const { return SRetReturnReg; }
+  void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
+
+  unsigned getGlobalBaseReg();
 
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
-
-  unsigned getVarArgsSaveSize() const { return VarArgsSaveSize; }
-  void setVarArgsSaveSize(int Size) { VarArgsSaveSize = Size; }
-
-  int getMoveF64FrameIndex() {
-    if (MoveF64FrameIndex == -1)
-      MoveF64FrameIndex = MF.getFrameInfo().CreateStackObject(8, 8, false);
-    return MoveF64FrameIndex;
-  }
 };
 
-} // end namespace llvm
+}  // namespace llvm
 
-#endif // LLVM_LIB_TARGET_Ceespu_CeespuMACHINEFUNCTIONINFO_H
+#endif  // LLVM_LIB_TARGET_Ceespu_CeespuMACHINEFUNCTIONINFO_H

@@ -1,4 +1,5 @@
-//===-- CeespuInstrInfo.h - Ceespu Instruction Information --------*- C++ -*-===//
+//===-- CeespuInstrInfo.h - Ceespu Instruction Information --------*- C++
+//-*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -23,8 +24,7 @@
 namespace llvm {
 
 class CeespuInstrInfo : public CeespuGenInstrInfo {
-
-public:
+ public:
   CeespuInstrInfo();
 
   unsigned isLoadFromStackSlot(const MachineInstr &MI,
@@ -67,18 +67,19 @@ public:
   unsigned insertIndirectBranch(MachineBasicBlock &MBB,
                                 MachineBasicBlock &NewDestBB,
                                 const DebugLoc &DL, int64_t BrOffset,
-                                RegScavenger *RS = nullptr) const override;
+                                RegScavenger *RS = nullptr) const override{};
 
   unsigned removeBranch(MachineBasicBlock &MBB,
                         int *BytesRemoved = nullptr) const override;
 
-  bool
-  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+  bool reverseBranchCondition(
+      SmallVectorImpl<MachineOperand> &Cond) const override;
 
   MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
 
   bool isBranchOffsetInRange(unsigned BranchOpc,
                              int64_t BrOffset) const override;
+  bool expandPostRAPseudo(MachineInstr &MI) const override;
 };
-}
+}  // namespace llvm
 #endif

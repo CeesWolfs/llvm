@@ -50,7 +50,6 @@ class CeespuAsmPrinter : public AsmPrinter {
                              unsigned AsmVariant, const char *ExtraCode,
                              raw_ostream &OS) override;
 
-  void EmitToStreamer(MCStreamer &S, const MCInst &Inst);
   bool emitPseudoExpansionLowering(MCStreamer &OutStreamer,
                                    const MachineInstr *MI);
 

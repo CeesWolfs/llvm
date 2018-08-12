@@ -143,7 +143,7 @@ void CeespuInstrInfo::movImm32(MachineBasicBlock &MBB,
   uint64_t Lo16 = Val & 0xffff;
   BuildMI(MBB, MBBI, DL, get(Ceespu::SETHI)).addImm(Hi16);
   BuildMI(MBB, MBBI, DL, get(Ceespu::ADDI), DstReg)
-      .addReg(DstReg, RegState::Kill)
+      .addReg(Ceespu::R0)
       .addImm(Lo16)
       .setMIFlag(Flag);
 }
@@ -170,6 +170,14 @@ static unsigned getOppositeBranchOpcode(int Opc) {
       return Ceespu::BNE;
     case Ceespu::BNE:
       return Ceespu::BEQ;
+    case Ceespu::BGT:
+      return Ceespu::BGT;
+    case Ceespu::BGE:
+      return Ceespu::BGE;
+    case Ceespu::BGEU:
+      return Ceespu::BGEU;
+    case Ceespu::BGU:
+      return Ceespu::BGU;
   }
 }
 
@@ -365,7 +373,73 @@ bool CeespuInstrInfo::isBranchOffsetInRange(unsigned BranchOp,
   // Ideally we could determine the supported branch offset from the
   // CeespuII::FormMask, but this can't be used for Pseudo instructions like
   // PseudoBR.
-  return true;
+  return BrOffset < 32767 && BrOffset > -32768;
+}
+
+bool CeespuInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
+  unsigned ReplaceOpc;
+  switch (MI.getOpcode()) {
+    case Ceespu::ADDX:
+      ReplaceOpc = Ceespu::ADDI;
+      break;
+    case Ceespu::ADEX:
+      ReplaceOpc = Ceespu::ADEI;
+      break;
+    case Ceespu::ADCX:
+      ReplaceOpc = Ceespu::ADCI;
+      break;
+    case Ceespu::SUBX:
+      ReplaceOpc = Ceespu::SUBI;
+      break;
+    case Ceespu::SBEX:
+      ReplaceOpc = Ceespu::SBEI;
+      break;
+    case Ceespu::SBBX:
+      ReplaceOpc = Ceespu::SBBI;
+      break;
+    case Ceespu::ORX:
+      ReplaceOpc = Ceespu::ORI;
+      break;
+    case Ceespu::ANDX:
+      ReplaceOpc = Ceespu::ANDI;
+      break;
+    case Ceespu::XORX:
+      ReplaceOpc = Ceespu::XORI;
+      break;
+    case Ceespu::MULX:
+      ReplaceOpc = Ceespu::MULI;
+      break;
+    default:
+      return false;
+  }
+  DebugLoc DL = MI.getDebugLoc();
+  MachineBasicBlock &MBB = *MI.getParent();
+  const unsigned DstReg = MI.getOperand(0).getReg();
+  const unsigned SrcReg = MI.getOperand(1).getReg();
+  const MachineOperand &MO = MI.getOperand(2);
+  if (MO.isImm()) {
+    uint64_t imm = MO.getImm();
+    uint16_t lo = imm & 0xffff;
+    uint16_t hi = imm >> 16;
+    if (!isInt<16>(imm)) {
+      BuildMI(MBB, MI, DL, get(Ceespu::SETHI)).addImm(hi);
+    }
+    BuildMI(MBB, MI, DL, get(ReplaceOpc), DstReg).addReg(SrcReg).addImm(lo);
+    MBB.erase(MI);
+    return true;
+  } else if (MO.isGlobal()) {
+    BuildMI(MBB, MI, DL, get(Ceespu::SETHI)).addGlobalAddress(MO.getGlobal());
+    BuildMI(MBB, MI, DL, get(ReplaceOpc), DstReg)
+        .addReg(SrcReg)
+        .addGlobalAddress(MO.getGlobal());
+    MBB.erase(MI);
+    return true;
+  } else if (MO.isSymbol()) {
+    BuildMI(MBB, MI, DL, get(Ceespu::SETHI)).addSym(MO.getMCSymbol());
+    BuildMI(MBB, MI, DL, get(ReplaceOpc), DstReg)
+        .addReg(SrcReg)
+        .addSym(MO.getMCSymbol());
+  }
 }
 
 unsigned CeespuInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {

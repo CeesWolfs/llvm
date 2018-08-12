@@ -1,4 +1,5 @@
-//===-- CeespuELFStreamer.cpp - Ceespu ELF Target Streamer Methods ----------===//
+//===-- CeespuELFStreamer.cpp - Ceespu ELF Target Streamer Methods
+//----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -20,16 +21,13 @@ using namespace llvm;
 
 // This part is for ELF object output.
 CeespuTargetELFStreamer::CeespuTargetELFStreamer(MCStreamer &S,
-                                               const MCSubtargetInfo &STI)
+                                                 const MCSubtargetInfo &STI)
     : CeespuTargetStreamer(S) {
   MCAssembler &MCA = getStreamer().getAssembler();
 
   const FeatureBitset &Features = STI.getFeatureBits();
 
   unsigned EFlags = MCA.getELFHeaderEFlags();
-
-  if (Features[Ceespu::FeatureStdExtC])
-    EFlags |= ELF::EF_Ceespu_RVC;
 
   MCA.setELFHeaderEFlags(EFlags);
 }
