@@ -300,12 +300,11 @@ unsigned CeespuInstrInfo::insertBranch(
   // One-way conditional branch.
   if (!FBB) return 1;
 
-  llvm_unreachable("Ceespu two-way conditional branches not supported");
+  // llvm_unreachable("Ceespu two-way conditional branches not supported");
 
   // Two-way conditional branch.
-  // MachineInstr &MI = *BuildMI(&MBB, DL,
-  // get(Ceespu::PseudoBR)).addMBB(FBB); if (BytesAdded) *BytesAdded +=
-  // getInstSizeInBytes(MI);
+  MachineInstr &MI = *BuildMI(&MBB, DL, get(Ceespu::JMP)).addMBB(FBB);
+  if (BytesAdded) *BytesAdded += getInstSizeInBytes(MI);
   return 2;
 }
 
@@ -353,12 +352,12 @@ unsigned CeespuInstrInfo::insertBranch(
 }
 */
 
-bool CeespuInstrInfo::reverseBranchCondition(
-    SmallVectorImpl<MachineOperand> &Cond) const {
-  assert((Cond.size() == 3) && "Invalid branch condition!");
-  Cond[0].setImm(getOppositeBranchOpcode(Cond[0].getImm()));
-  return false;
-}
+// bool CeespuInstrInfo::reverseBranchCondition(
+//    SmallVectorImpl<MachineOperand> &Cond) const {
+//  assert((Cond.size() == 3) && "Invalid branch condition!");
+//  Cond[0].setImm(getOppositeBranchOpcode(Cond[0].getImm()));
+//  return false;
+//}
 
 MachineBasicBlock *CeespuInstrInfo::getBranchDestBlock(
     const MachineInstr &MI) const {
@@ -427,18 +426,11 @@ bool CeespuInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     BuildMI(MBB, MI, DL, get(ReplaceOpc), DstReg).addReg(SrcReg).addImm(lo);
     MBB.erase(MI);
     return true;
-  } else if (MO.isGlobal()) {
-    BuildMI(MBB, MI, DL, get(Ceespu::SETHI)).addGlobalAddress(MO.getGlobal());
-    BuildMI(MBB, MI, DL, get(ReplaceOpc), DstReg)
-        .addReg(SrcReg)
-        .addGlobalAddress(MO.getGlobal());
+  } else {
+    BuildMI(MBB, MI, DL, get(Ceespu::SETHI)).add(MO);
+    BuildMI(MBB, MI, DL, get(ReplaceOpc), DstReg).addReg(SrcReg).add(MO);
     MBB.erase(MI);
     return true;
-  } else if (MO.isSymbol()) {
-    BuildMI(MBB, MI, DL, get(Ceespu::SETHI)).addSym(MO.getMCSymbol());
-    BuildMI(MBB, MI, DL, get(ReplaceOpc), DstReg)
-        .addReg(SrcReg)
-        .addSym(MO.getMCSymbol());
   }
 }
 

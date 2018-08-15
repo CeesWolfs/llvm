@@ -58,8 +58,7 @@ static MCSubtargetInfo *createCeespuMCSubtargetInfo(const Triple &TT,
                                                     StringRef CPU,
                                                     StringRef FS) {
   std::string CPUName = CPU;
-  if (CPUName.empty())
-    CPUName = TT.isArch64Bit() ? "generic-rv64" : "generic-rv32";
+  if (CPUName.empty()) CPUName = "generic-ceespu";
   return createCeespuMCSubtargetInfoImpl(TT, CPUName, FS);
 }
 

@@ -1,4 +1,5 @@
-//===-- CeespuMCAsmInfo.cpp - Ceespu Asm properties -------------------------===//
+//===-- CeespuMCAsmInfo.cpp - Ceespu Asm properties
+//-------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -18,10 +19,12 @@ using namespace llvm;
 void CeespuMCAsmInfo::anchor() {}
 
 CeespuMCAsmInfo::CeespuMCAsmInfo(const Triple &TT) {
+  IsLittleEndian = false;
   CodePointerSize = CalleeSaveStackSlotSize = TT.isArch64Bit() ? 8 : 4;
-  CommentString = "#";
+  CommentString = ";";
   AlignmentIsInBytes = false;
-  SupportsDebugInformation = true;
-  Data16bitsDirective = "\t.half\t";
+  SupportsDebugInformation = false;  // true;
+  Data16bitsDirective = "\t.hword\t";
   Data32bitsDirective = "\t.word\t";
+  ZeroDirective = "\t.space\t";
 }

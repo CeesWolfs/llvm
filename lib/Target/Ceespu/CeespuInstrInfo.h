@@ -72,8 +72,8 @@ class CeespuInstrInfo : public CeespuGenInstrInfo {
   unsigned removeBranch(MachineBasicBlock &MBB,
                         int *BytesRemoved = nullptr) const override;
 
-  bool reverseBranchCondition(
-      SmallVectorImpl<MachineOperand> &Cond) const override;
+  // bool reverseBranchCondition(
+  //    SmallVectorImpl<MachineOperand> &Cond) const override;
 
   MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
 

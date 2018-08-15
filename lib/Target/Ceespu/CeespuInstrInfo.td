@@ -98,17 +98,19 @@ class CALL
 class CALLR
     : CeespuA2<OPC_JMP, (outs), (ins GPR:$ra),
               "callr", "$ra",
-              []> {
+              [(Ceespucall GPR:$ra)]> {
   let Inst{1-0} = 0b11;
 }
-
-
 
 class BRANCHR
     : CeespuA2<OPC_JMP, (outs), (ins GPR:$ra),
               "bx", "$ra",
-              []> {
+              [(brind GPR:$ra)]> {
   let Inst{1} = 1;
+}
+
+let isBranch = 1, isBarrier = 1, hasDelaySlot = 0, isTerminator = 1, isIndirectBranch = 1 in {
+  def BX : BRANCHR;
 }
 
 class RET : InstCeespu<OPC_JMP, (outs), (ins), "bx", "clr", [(Ceespuretflag)]> {
@@ -303,8 +305,11 @@ let usesCustomInserter = 1 in {
 
 // load global addr into register
 def : Pat<(CeespuWrapper tglobaladdr:$in), (ORX R0,  tglobaladdr:$in)>;
-// load global addr into register
+// load ext addr into register
 def : Pat<(CeespuWrapper texternalsym:$in), (ORX R0,  texternalsym:$in)>;
+// load jumptableentry into register
+def : Pat<(CeespuWrapper tjumptable:$in), (ORX R0,  tjumptable:$in)>;
+
 
 // Zero immidiate
 def : Pat<(i32 0), (i32 R0)>;

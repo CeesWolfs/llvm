@@ -34,7 +34,7 @@ static std::string computeDataLayout(const Triple &TT) {
   if (TT.getArch() == Triple::ceespueb) {
     return "E-m:E-p:32:32:32-i32:32-n32-S32";
   }
-  return "e-m:e-p:32:32:32-i32:32-n32-S32";
+  return "e-m:e-p:32:32:32-i8:8-i16:16-i32:32-n32-S0";
 }
 
 static Reloc::Model getEffectiveRelocModel(const Triple &TT,

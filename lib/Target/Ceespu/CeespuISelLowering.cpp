@@ -61,8 +61,10 @@ CeespuTargetLowering::CeespuTargetLowering(const TargetMachine &TM,
 
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
   setOperationAction(ISD::BR_CC, XLenVT, Expand);
-  setOperationAction(ISD::SELECT, XLenVT, Custom);
-  setOperationAction(ISD::SELECT_CC, XLenVT, Expand);
+  setOperationAction(ISD::SETCC, XLenVT, Expand);
+
+  setOperationAction(ISD::SELECT, XLenVT, Expand);
+  setOperationAction(ISD::SELECT_CC, XLenVT, Custom);
 
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
@@ -100,6 +102,8 @@ CeespuTargetLowering::CeespuTargetLowering(const TargetMachine &TM,
       ISD::SETGT,  ISD::SETGE,  ISD::SETNE};
 
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
+  setOperationAction(ISD::JumpTable, MVT::i32, Custom);
+
   // setOperationAction(ISD::BlockAddress, XLenVT, Custom);
   // setOperationAction(ISD::ConstantPool, XLenVT, Custom);
 
@@ -110,8 +114,15 @@ CeespuTargetLowering::CeespuTargetLowering(const TargetMachine &TM,
   setMinFunctionAlignment(FunctionAlignment);
   setPrefFunctionAlignment(FunctionAlignment);
 
+  MaxStoresPerMemset = 16;  // For @llvm.memset -> sequence of stores
+  MaxStoresPerMemsetOptSize = 8;
+  MaxStoresPerMemcpy = 16;  // For @llvm.memcpy -> sequence of stores
+  MaxStoresPerMemcpyOptSize = 8;
+  MaxStoresPerMemmove = 16;  // For @llvm.memmove -> sequence of stores
+  MaxStoresPerMemmoveOptSize = 8;
+
   // Effectively disable jump table generation.
-  // setMinimumJumpTableEntries(INT_MAX);
+  setMinimumJumpTableEntries(16);
 }
 
 EVT CeespuTargetLowering::getSetCCResultType(const DataLayout &DL,
@@ -232,8 +243,10 @@ SDValue CeespuTargetLowering::LowerOperation(SDValue Op,
       report_fatal_error("unimplemented operand");
     case ISD::GlobalAddress:
       return lowerGlobalAddress(Op, DAG);
-    case ISD::SELECT:
-      return lowerSELECT(Op, DAG);
+    case ISD::JumpTable:
+      return LowerJumpTable(Op, DAG);
+    case ISD::SELECT_CC:
+      return lowerSELECT_CC(Op, DAG);
     case ISD::VASTART:
       return lowerVASTART(Op, DAG);
     case ISD::FRAMEADDR:
@@ -269,6 +282,16 @@ SDValue CeespuTargetLowering::lowerGlobalAddress(SDValue Op,
   SDValue GA = DAG.getTargetGlobalAddress(GV, DL, MVT::i32);
 
   return DAG.getNode(CeespuISD::Wrapper, DL, MVT::i32, GA);
+}
+
+SDValue CeespuTargetLowering::LowerJumpTable(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  JumpTableSDNode *JT = cast<JumpTableSDNode>(Op);
+
+  SDValue JMPT = DAG.getTargetJumpTable(JT->getIndex(),
+                                        getPointerTy(DAG.getDataLayout()), 0);
+  return DAG.getNode(CeespuISD::Wrapper, DL, MVT::i32, JMPT);
 }
 
 /*SDValue CeespuTargetLowering::lowerBlockAddress(SDValue Op,
@@ -333,42 +356,21 @@ SDValue CeespuTargetLowering::lowerExternalSymbol(SDValue Op,
   return MNLo;
 }*/
 
-SDValue CeespuTargetLowering::lowerSELECT(SDValue Op, SelectionDAG &DAG) const {
-  SDValue CondV = Op.getOperand(0);
-  SDValue TrueV = Op.getOperand(1);
-  SDValue FalseV = Op.getOperand(2);
+SDValue CeespuTargetLowering::lowerSELECT_CC(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  SDValue LHS = Op.getOperand(0);
+  SDValue RHS = Op.getOperand(1);
+  SDValue TrueV = Op.getOperand(2);
+  SDValue FalseV = Op.getOperand(3);
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(4))->get();
   SDLoc DL(Op);
-  MVT XLenVT = MVT::i32;
 
-  // If the result type is XLenVT and CondV is the output of a SETCC node
-  // which also operated on XLenVT inputs, then merge the SETCC node into the
-  // lowered CeespuISD::SELECT_CC to take advantage of the integer
-  // compare+branch instructions. i.e.:
-  // (select (setcc lhs, rhs, cc), truev, falsev)
-  // -> (ceespuisd::select_cc lhs, rhs, cc, truev, falsev)
-  if (Op.getSimpleValueType() == XLenVT && CondV.getOpcode() == ISD::SETCC &&
-      CondV.getOperand(0).getSimpleValueType() == XLenVT) {
-    SDValue LHS = CondV.getOperand(0);
-    SDValue RHS = CondV.getOperand(1);
-    auto CC = cast<CondCodeSDNode>(CondV.getOperand(2));
-    ISD::CondCode CCVal = CC->get();
+  normaliseSetCC(LHS, RHS, CC);
 
-    normaliseSetCC(LHS, RHS, CCVal);
-
-    SDValue TargetCC = DAG.getConstant(CCVal, DL, XLenVT);
-    SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Glue);
-    SDValue Ops[] = {LHS, RHS, TargetCC, TrueV, FalseV};
-    return DAG.getNode(CeespuISD::SELECT_CC, DL, VTs, Ops);
-  }
-
-  // Otherwise:
-  // (select condv, truev, falsev)
-  // -> (ceespuisd::select_cc condv, zero, setne, truev, falsev)
-  SDValue Zero = DAG.getConstant(0, DL, XLenVT);
-  SDValue SetNE = DAG.getConstant(ISD::SETNE, DL, XLenVT);
+  SDValue TargetCC = DAG.getConstant(CC, DL, MVT::i32);
 
   SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Glue);
-  SDValue Ops[] = {CondV, Zero, SetNE, TrueV, FalseV};
+  SDValue Ops[] = {LHS, RHS, TargetCC, TrueV, FalseV};
 
   return DAG.getNode(CeespuISD::SELECT_CC, DL, VTs, Ops);
 }
@@ -448,130 +450,58 @@ MachineBasicBlock *CeespuTargetLowering::EmitInstrWithCustomInserter(
   // DEBUG(dbgs() << "EmitInstrWithCustomInserter \n");
   assert(MI.getOpcode() == Ceespu::Select && "Unexpected instr type to insert");
 
-  // To "insert" a SELECT instruction, we actually have to insert the diamond
-  // control-flow pattern.  The incoming instruction knows the destination
-  // vreg to set, the condition code register to branch on, the true/false
-  // values to select between, and a branch opcode to use.
+  // To "insert" a SELECT instruction, we actually have to insert the triangle
+  // control-flow pattern.  The incoming instruction knows the destination vreg
+  // to set, the condition code register to branch on, the true/false values to
+  // select between, and the condcode to use to select the appropriate branch.
+  //
+  // We produce the following control flow:
+  //     HeadMBB
+  //     |  \
+  //     |  IfFalseMBB
+  //     | /
+  //    TailMBB
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction::iterator I = ++BB->getIterator();
 
-  // ThisMBB:
-  // ...
-  //  TrueVal = ...
-  //  jmp_XX r1, r2 goto Copy1MBB
-  //  fallthrough --> Copy0MBB
-  MachineBasicBlock *ThisMBB = BB;
+  MachineBasicBlock *HeadMBB = BB;
   MachineFunction *F = BB->getParent();
-  MachineBasicBlock *Copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *Copy1MBB = F->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *TailMBB = F->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *IfFalseMBB = F->CreateMachineBasicBlock(LLVM_BB);
 
-  F->insert(I, Copy0MBB);
-  F->insert(I, Copy1MBB);
+  F->insert(I, IfFalseMBB);
+  F->insert(I, TailMBB);
+  // Move all remaining instructions to TailMBB.
+  TailMBB->splice(TailMBB->begin(), HeadMBB,
+                  std::next(MachineBasicBlock::iterator(MI)), HeadMBB->end());
   // Update machine-CFG edges by transferring all successors of the current
   // block to the new block which will contain the Phi node for the select.
-  Copy1MBB->splice(Copy1MBB->begin(), BB,
-                   std::next(MachineBasicBlock::iterator(MI)), BB->end());
-  Copy1MBB->transferSuccessorsAndUpdatePHIs(BB);
-  // Next, add the true and fallthrough blocks as its successors.
-  BB->addSuccessor(Copy0MBB);
-  BB->addSuccessor(Copy1MBB);
+  TailMBB->transferSuccessorsAndUpdatePHIs(HeadMBB);
+  // Set the successors for HeadMBB.
+  HeadMBB->addSuccessor(IfFalseMBB);
+  HeadMBB->addSuccessor(TailMBB);
 
-  // Insert Branch if Flag
+  // Insert appropriate branch.
   unsigned LHS = MI.getOperand(1).getReg();
   unsigned RHS = MI.getOperand(2).getReg();
-  int CC = MI.getOperand(3).getImm();
-  switch (CC) {
-    case ISD::SETGT:
-      BuildMI(BB, DL, TII.get(Ceespu::BGT))
-          .addReg(LHS)
-          .addReg(RHS)
-          .addMBB(Copy1MBB);
-      break;
-    case ISD::SETUGT:
-      BuildMI(BB, DL, TII.get(Ceespu::BGU))
-          .addReg(LHS)
-          .addReg(RHS)
-          .addMBB(Copy1MBB);
-      break;
-    case ISD::SETGE:
-      BuildMI(BB, DL, TII.get(Ceespu::BGE))
-          .addReg(LHS)
-          .addReg(RHS)
-          .addMBB(Copy1MBB);
-      break;
-    case ISD::SETUGE:
-      BuildMI(BB, DL, TII.get(Ceespu::BGEU))
-          .addReg(LHS)
-          .addReg(RHS)
-          .addMBB(Copy1MBB);
-      break;
-    case ISD::SETEQ:
-      BuildMI(BB, DL, TII.get(Ceespu::BEQ))
-          .addReg(LHS)
-          .addReg(RHS)
-          .addMBB(Copy1MBB);
-      break;
-    case ISD::SETNE:
-      BuildMI(BB, DL, TII.get(Ceespu::BNE))
-          .addReg(LHS)
-          .addReg(RHS)
-          .addMBB(Copy1MBB);
-      break;
-    default:
-      report_fatal_error("unimplemented select CondCode " + Twine(CC));
-  }
+  auto CC = static_cast<ISD::CondCode>(MI.getOperand(3).getImm());
+  unsigned Opcode = getBranchOpcodeForIntCondCode(CC);
 
-  // Copy0MBB:
-  //  %FalseValue = ...
-  //  # fallthrough to Copy1MBB
-  BB = Copy0MBB;
+  BuildMI(HeadMBB, DL, TII.get(Opcode)).addReg(LHS).addReg(RHS).addMBB(TailMBB);
 
-  // Update machine-CFG edges
-  BB->addSuccessor(Copy1MBB);
+  // IfFalseMBB just falls through to TailMBB.
+  IfFalseMBB->addSuccessor(TailMBB);
 
-  // Copy1MBB:
-  //  %Result = phi [ %FalseValue, Copy0MBB ], [ %TrueValue, ThisMBB ]
-  // ...
-  BB = Copy1MBB;
-  if (MI.getOperand(0).getReg() == Ceespu::R0) {
-    unsigned VReg = F->getRegInfo().createVirtualRegister(&Ceespu::GPRRegClass);
-    BuildMI(*Copy0MBB, Copy0MBB->begin(), DL, TII.get(TargetOpcode::COPY), VReg)
-        .addReg(MI.getOperand(0).getReg());
-    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI), VReg)
-        .addReg(MI.getOperand(5).getReg())
-        .addMBB(Copy0MBB)
-        .addReg(MI.getOperand(4).getReg())
-        .addMBB(ThisMBB);
-  } else if (MI.getOperand(4).getReg() == Ceespu::R0) {
-    unsigned VReg = F->getRegInfo().createVirtualRegister(&Ceespu::GPRRegClass);
-    BuildMI(*Copy0MBB, Copy0MBB->begin(), DL, TII.get(TargetOpcode::COPY), VReg)
-        .addReg(MI.getOperand(4).getReg());
-    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI),
-            MI.getOperand(0).getReg())
-        .addReg(MI.getOperand(5).getReg())
-        .addMBB(Copy0MBB)
-        .addReg(VReg)
-        .addMBB(ThisMBB);
-  } else if (MI.getOperand(5).getReg() == Ceespu::R0) {
-    unsigned VReg = F->getRegInfo().createVirtualRegister(&Ceespu::GPRRegClass);
-    BuildMI(*Copy0MBB, Copy0MBB->begin(), DL, TII.get(TargetOpcode::COPY), VReg)
-        .addReg(MI.getOperand(5).getReg());
-    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI),
-            MI.getOperand(0).getReg())
-        .addReg(VReg)
-        .addMBB(Copy0MBB)
-        .addReg(MI.getOperand(4).getReg())
-        .addMBB(ThisMBB);
-  } else {
-    BuildMI(*BB, BB->begin(), DL, TII.get(Ceespu::PHI),
-            MI.getOperand(0).getReg())
-        .addReg(MI.getOperand(5).getReg())
-        .addMBB(Copy0MBB)
-        .addReg(MI.getOperand(4).getReg())
-        .addMBB(ThisMBB);
-  }
+  // %Result = phi [ %TrueValue, HeadMBB ], [ %FalseValue, IfFalseMBB ]
+  BuildMI(*TailMBB, TailMBB->begin(), DL, TII.get(Ceespu::PHI),
+          MI.getOperand(0).getReg())
+      .addReg(MI.getOperand(4).getReg())
+      .addMBB(HeadMBB)
+      .addReg(MI.getOperand(5).getReg())
+      .addMBB(IfFalseMBB);
+
   MI.eraseFromParent();  // The pseudo instruction is gone now.
-  return BB;
+  return TailMBB;
 }
 /* switch (MI.getOpcode()) {
    default:

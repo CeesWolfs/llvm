@@ -86,6 +86,10 @@ bool CeespuAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
   if (!ExtraCode) {
     const MachineOperand &MO = MI->getOperand(OpNo);
     switch (MO.getType()) {
+      case MachineOperand::MO_JumpTableIndex:
+        OS << "$"
+           << "JTI" << getFunctionNumber() << '_' << MO.getIndex();
+        break;
       case MachineOperand::MO_GlobalAddress:
         OS << MO.getGlobal();
         return false;
